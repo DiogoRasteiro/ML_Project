@@ -3,3 +3,4 @@ data/*
 backup/*
 *.html
 *.ipynb
+*.pdf
