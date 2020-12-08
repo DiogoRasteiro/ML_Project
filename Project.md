@@ -32,14 +32,28 @@ jupyter:
 * PCA
 
 ```python
+# Libraries for manipulating and displaying data
 import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 from pandas_profiling import ProfileReport
+
+# Utility Libraries
 from datetime import datetime
-from sklearn.model_selection import train_test_split
+
+# Model Libraries
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.tree import DecisionTreeRegressor
+
+from sklearn.model_selection import train_test_split
+from sklearn import tree
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, f1_score, recall_score, classification_report
 from sklearn.tree import export_graphviz
 import graphviz
 import pydotplus
@@ -47,31 +61,38 @@ import pydotplus
 
 ## Importing Data
 
+
+First, we import both the Train and Test datasets into Pandas Dataframes:
+
 ```python
 data = pd.read_excel('data/Train.xlsx')
 test_data = pd.read_excel('data/Test.xlsx')
 ```
 
+Afterwards, let's get a look at our data.
+
 ```python
 data.head()
 ```
 
-```python
-data.set_index('CITIZEN_ID',drop=True,inplace=True)
-```
+Since the table already has an ID, let's use that as the DF's index.
 
 ```python
+data.set_index('CITIZEN_ID',drop=True,inplace=True)
 test_data.set_index('CITIZEN_ID',drop=True,inplace=True)
 ```
 
+Backup the data in case we make significant changes we need to revert
+
 ```python
-# Backup the data in case we make significant changes we need to revert
 backup = data.copy()
 ```
 
 ```python
 data = backup.copy()
 ```
+
+Because we need to handle metric and non-metrical data in a different way, let us create a way to filter them in case it is necessary.
 
 ```python
 numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
@@ -90,21 +111,23 @@ The ProfileReport shows us the basic statistics and the general distribution for
 
 ```python
 # Generate a profile
-# profile = ProfileReport(
-#    data, 
-#    title='Newland Citizens Report',
-#    correlations={
-#        "pearson": {"calculate": True},
-#        "spearman": {"calculate": True},
-#        "kendall": {"calculate": False},
-#        "phi_k": {"calculate": False},
-#        "cramers": {"calculate": False},
-#    }
-# )
+def generate_report(path):
+    profile = ProfileReport(
+        data, 
+        title='Newland Citizens Report',
+        correlations={
+            "pearson": {"calculate": True},
+            "spearman": {"calculate": True},
+            "kendall": {"calculate": False},
+            "phi_k": {"calculate": False},
+            "cramers": {"calculate": False},
+        }
+     )
+    profile.to_file(path)
 
 
 # Export this profile to a file
-# profile.to_file('reports/citizen_profiling.html')
+# generate_report('reports/citizen_profiling.html')
 ```
 
 ## Missing Values
@@ -114,32 +137,25 @@ We considered that a value o '?' in a column represents a missing value.
 For better treatment, we replaced them with numpy.NaN.
 
 ```python
-col_with_missing=[]
+col_with_missing = []
 for column in data.columns:
     if '?' in data[column].values:
         col_with_missing.append(column)
-```
 
-```python
-testcol_with_missing=[]
+# We repeat the analysis for the Test dataset as well, to ensure that the columns with missing values are the
+# same
+testcol_with_missing = []
 for column in test_data.columns:
     if '?' in test_data[column].values:
         testcol_with_missing.append(column)
 ```
 
 ```python
-col_with_missing
-```
-
-```python
-testcol_with_missing
+print(col_with_missing == testcol_with_missing)
 ```
 
 ```python
 test_data[testcol_with_missing] = test_data[testcol_with_missing].replace('?', np.NaN)
-```
-
-```python
 data[col_with_missing] = data[col_with_missing].replace('?', np.NaN)
 ```
 
@@ -150,6 +166,8 @@ data.loc[:,col_with_missing].isnull().mean()
 ```python
 test_data.loc[:,testcol_with_missing].isnull().mean()
 ```
+
+From this, we can see that we have aproximmately the same proportion of missing values in Train and Test.
 
 ```python
 test_data['Base Area'].value_counts()
@@ -168,7 +186,7 @@ data['Role'].value_counts()
 ```
 
 ```python
-data[data['Employment Sector']=='Unemployed']
+data[data['Employment Sector'] == 'Unemployed']
 ```
 
 ```python
@@ -198,8 +216,9 @@ data['Employment Sector']=data['Employment Sector'].apply(lambda x: 'Unemployed'
 ```python
 test_data['Role'].fillna('Unemployed', inplace=True)
 test_data['Employment Sector'].fillna('Unemployed', inplace=True)
-test_data['Employment Sector']=test_data['Employment Sector'].apply(lambda x: 'Unemployed' if x=='Never Worked' else x)
-test_data['Base Area'].fillna(test_data['Base Area'].mode()[0],inplace=True)
+test_data['Employment Sector'] = test_data['Employment Sector'].apply(
+    lambda x: 'Unemployed' if x == 'Never Worked' else x)
+test_data['Base Area'].fillna(test_data['Base Area'].mode()[0], inplace=True)
 ```
 
 ```python
@@ -216,55 +235,147 @@ test_data.loc[:,col_with_missing].isnull().mean()
 
 # Modelling
 
+
+* Random Forest
+* Decision Trees
+* Neural Network
+* Logistic Regression
+* kNN
+* Naive Bayes
+
+
+## Target Variable definition and Train-Test Split
+
+
+First we split the dataframe, in order to separate the target variable from the rest.
+
+
+For this initial analysis, we'll only consider the 4 metric variables present in the initial dataset.
+
 ```python
-target=data['Income']
-data1=data.drop(columns='Income')
+target = data['Income']
+X = data.drop(columns='Income')
 ```
 
 ```python
-test_data1=test_data[metric_features]
+X_metrics = data[metric_features[:-1]]
+X_test_metrics = test_data[metric_features[:-1]] 
 ```
 
 ```python
-test_data1
+X_train, X_val, y_train, y_val = train_test_split(X_metrics,
+                                                  target,
+                                                  test_size=0.25,
+                                                  stratify=target,
+                                                  random_state=35)
 ```
 
 ```python
-target.value_counts()
+def metrics(model, X_train, X_val, y_train, y_val):
+    pred_train = model.predict(X_train)
+    pred_val = model.predict(X_val)
+    
+    print(classification_report(y_train, pred_train))
+    # print(confusion_matrix(y_train, pred_train))
+    
+    print(classification_report(y_val, pred_val))
+    # print(confusion_matrix(y_val, pred_val))
+    
+def evaluate(model):
+    metrics(model, X_train, X_val, y_train, y_val)
+    f1_micro = f1_evaluation(model)
+    print(f'The Micro Average of the F1 Score is : {f1_micro}')
+    
+def f1_evaluation(model):
+    return f1_score(y_val, model.predict(X_val), average='micro')
 ```
 
 ```python
-##Random Forest
-##Decision Trees
-##Neural Network
-##Logistic Regression
-##kNN
-##Naive Bayes
-##Regression Trees
+def batch_model_creation():
+    model_df = pd.DataFrame(columns=['Model_Name', 'F1_Score_Initial'])
+    
+    # Random Forest
+    randForest = RandomForestClassifier(max_depth=10, random_state=0)
+    randForest.fit(X_train, y_train)
+    model_df.loc[0] = ['Random Forest', f1_evaluation(randForest)] 
+    
+    dt_gini = DecisionTreeClassifier(max_depth = 10, random_state=0)
+    dt_gini.fit(X_train, y_train)
+    model_df.loc[1] = ['Decision Tree GINI', f1_evaluation(dt_gini)] 
+    
+    dt_ent = DecisionTreeClassifier(max_depth = 10, random_state=0)
+    dt_ent.fit(X_train, y_train)
+    model_df.loc[2] = ['Decision Tree Entropy', f1_evaluation(dt_ent)] 
+    
+    # Multi-layer Perceptron
+    mlp = MLPClassifier()
+    mlp.fit(X_train, y_train)
+    model_df.loc[3] = ['Multi-layer Perceptron', f1_evaluation(mlp)] 
+    
+    # Logistic Regression
+    log_model = LogisticRegression()
+    log_model.fit(X_train, y_train)
+    model_df.loc[4] = ['Logistic Regression', f1_evaluation(log_model)] 
+    
+    # K-Nearest Neighbors
+    knn = KNeighborsClassifier()
+    knn.fit(X_train, y_train)
+    model_df.loc[5] = ['K-Nearest Neighbors', f1_evaluation(knn)] 
+    
+    # Gaussian Model
+    nb_model = GaussianNB()
+    nb_model.fit(X_train, y_train)
+    model_df.loc[6] = ['GaussianNB', f1_evaluation(nb_model)] 
+    
+    
+    return model_df
+
+def batch_model_update(model_df, score_name):
+    new_scores = []
+    
+    # Random Forest
+    randForest = RandomForestClassifier(max_depth=10, random_state=0)
+    randForest.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(randForest)) 
+    
+    dt_gini = DecisionTreeClassifier(max_depth = 10, random_state=0)
+    dt_gini.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(dt_gini)) 
+    
+    dt_ent = DecisionTreeClassifier(max_depth = 10, random_state=0)
+    dt_ent.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(dt_ent)) 
+    
+    # Multi-layer Perceptron
+    mlp = MLPClassifier()
+    mlp.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(mlp)) 
+    
+    # Logistic Regression
+    log_model = LogisticRegression()
+    log_model.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(log_model)) 
+    
+    # K-Nearest Neighbors
+    knn = KNeighborsClassifier()
+    knn.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(knn)) 
+    
+    # Gaussian Model
+    nb_model = GaussianNB()
+    nb_model.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(nb_model))
+    
+    new_scores = pd.Series(data=new_scores, name=score_name, index=model_df.index)
+    return pd.concat([model_df, new_scores], axis=1)
+    
 ```
 
 ```python
-metric_features=metric_features[:-1]
-data1=data[metric_features]
+df_model = batch_model_creation()
 ```
 
-```python
-X_train, X_val, y_train, y_val = train_test_split(data1, target, test_size=0.25, stratify = target, random_state=35)
-randForest = RandomForestClassifier(max_depth=10, random_state=0)
-randForest.fit(X_train, y_train)
-```
-
-```python
-randForest.score(X_train,y_train)
-```
-
-```python
-randForest.score(X_val,y_val)
-```
-
-```python
-randForest.predict(test_data1)
-```
+## Results Exporting
 
 ```python
 results=pd.concat([test_data1, pd.DataFrame(randForest.predict(test_data1), index=test_data1.index)],axis=1)
@@ -360,10 +471,10 @@ features=['Money Received','Ticket Price','Money Received','Ticket Price']
 count=0
 for ax, feat in zip(axes.flatten(), features): # Notice the zip() function and flatten() method
     if count<2:
-        ax.hist(data[data[feat]!=0][feat])
+        ax.hist(np.log10(data[data[feat]!=0][feat]))
         ax.set_title(feat, y=-0.13)
     else:
-        sns.boxplot(x=data[data[feat]!=0][feat], ax=ax)
+        sns.boxplot(x=np.log10(data[data[feat]!=0][feat]), ax=ax)
         ax.set_title(feat, y=-0.13)
     count+=1
     
@@ -428,13 +539,26 @@ Outlier Removal
 filters1 = (
     (data['Years of Education']>5)
     &
-    (data['Working Hours per Week']<=80)
+    (data['Working Hours per week']<=80)
     &
-    (data['Money Received']<=35)
+    ((data['Ticket Price']>=150) | (data['Ticket Price']==10000))
     &
-    (data['Ticket Price']!='OldSchool')
+    ((data['Money Received']>=134) | (data['Money Received']==0))
+    
 )
-data_cleaned = data[filters1]
+len(data[filters1]) / len(data)
+```
+
+```python
+data = data[filters1]
+```
+
+```python
+reset_model_data()
+```
+
+```python
+batch_model_update(df_model, 'Post-Outliers F1 Score')
 ```
 
 ## Variables to transform
