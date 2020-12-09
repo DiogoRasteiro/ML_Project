@@ -378,15 +378,11 @@ df_model = batch_model_creation()
 ## Results Exporting
 
 ```python
-results=pd.concat([test_data1, pd.DataFrame(randForest.predict(test_data1), index=test_data1.index)],axis=1)
+results=pd.concat([X_test_metrics, pd.DataFrame(randForest.predict(X_test_metrics), index=X_metrics.index)],axis=1)
 ```
 
 ```python
 results=results.iloc[:,-1:]
-```
-
-```python
-results.rename(columns={index:'CITIZEN\_ID'},inplace=True)
 ```
 
 ```python
@@ -471,10 +467,10 @@ features=['Money Received','Ticket Price','Money Received','Ticket Price']
 count=0
 for ax, feat in zip(axes.flatten(), features): # Notice the zip() function and flatten() method
     if count<2:
-        ax.hist(np.log10(data[data[feat]!=0][feat]))
+        ax.hist(data[data[feat]!=0][feat])
         ax.set_title(feat, y=-0.13)
     else:
-        sns.boxplot(x=np.log10(data[data[feat]!=0][feat]), ax=ax)
+        sns.boxplot(x=data[data[feat]!=0][feat], ax=ax)
         ax.set_title(feat, y=-0.13)
     count+=1
     
@@ -541,7 +537,7 @@ filters1 = (
     &
     (data['Working Hours per week']<=80)
     &
-    ((data['Ticket Price']>=150) | (data['Ticket Price']==10000))
+    ((data['Ticket Price']>=150) | (data['Ticket Price']==0))
     &
     ((data['Money Received']>=134) | (data['Money Received']==0))
     
@@ -550,15 +546,65 @@ len(data[filters1]) / len(data)
 ```
 
 ```python
-data = data[filters1]
+data_no_outliers=data[filters1]
 ```
+
+#### Modeling no Outliers
 
 ```python
 reset_model_data()
 ```
 
 ```python
-batch_model_update(df_model, 'Post-Outliers F1 Score')
+target = data_no_outliers['Income']
+X = data_no_outliers.drop(columns='Income')
+```
+
+```python
+X_metrics = data_no_outliers[metric_features[:-1]]
+X_test_metrics = test_data[metric_features[:-1]] 
+```
+
+```python
+X_train, X_val, y_train, y_val = train_test_split(X_metrics,
+                                                  target,
+                                                  test_size=0.25,
+                                                  stratify=target,
+                                                  random_state=35)
+```
+
+```python
+df_model=batch_model_update(df_model, 'Post-Outliers F1 Score')
+```
+
+```python
+df_model
+```
+
+```python
+randForest = RandomForestClassifier(max_depth=10, random_state=0)
+randForest.fit(X_train, y_train)
+evaluate(randForest)
+```
+
+```python
+results=pd.concat([X_test_metrics, pd.DataFrame(randForest.predict(X_test_metrics), index=X_test_metrics.index)],axis=1)
+```
+
+```python
+results=results.iloc[:,-1:]
+```
+
+```python
+results.index.rename('CITIZEN_ID',inplace=True)
+```
+
+```python
+results.rename(columns={0:'Income'},inplace=True)
+```
+
+```python
+results.to_csv(path_or_buf='results.csv')
 ```
 
 ## Variables to transform
@@ -570,16 +616,12 @@ batch_model_update(df_model, 'Post-Outliers F1 Score')
 *Continent
 
 ```python
-data['Age'] = data['Birthday'].apply(lambda x: datetime.strptime(x[-4:], "%Y").date()).astype('datetime64[ns]')
-data['Age'] = data['Age'].apply(lambda x: 2048 - x.year)
-```
-
-```python
 data['Marital Status'].value_counts()
 ```
 
 ```python
 data['is_Married']= data['Marital Status'].apply(lambda x: 1 if x in ['Married - Spouse in the Army','Married', 'Married - Spouse Missing'] else 0)
+test_data['is_Married']= test_data['Marital Status'].apply(lambda x: 1 if x in ['Married - Spouse in the Army','Married', 'Married - Spouse Missing'] else 0)
 ```
 
 ```python
@@ -588,18 +630,22 @@ data['is_Married'].value_counts()
 
 ```python
 data['Private Sector'] = data['Employment Sector'].apply(lambda x: 1 if 'Private' in x else 0)
+test_data['Private Sector'] = test_data['Employment Sector'].apply(lambda x: 1 if 'Private' in x else 0)
 ```
 
 ```python
 data['Public Sector'] = data['Employment Sector'].apply(lambda x: 1 if 'Public' in x else 0)
+test_data['Public Sector'] = test_data['Employment Sector'].apply(lambda x: 1 if 'Public' in x else 0)
 ```
 
 ```python
 data['Self Employed'] = data['Employment Sector'].apply(lambda x: 1 if 'Self' in x else 0)
+test_data['Self Employed'] = test_data['Employment Sector'].apply(lambda x: 1 if 'Self' in x else 0)
 ```
 
 ```python
 data['Unemployed'] = data['Employment Sector'].apply(lambda x: 1 if 'Unemployed' in x else 0)
+test_data['Unemployed'] = test_data['Employment Sector'].apply(lambda x: 1 if 'Unemployed' in x else 0)
 ```
 
 ```python
@@ -611,7 +657,107 @@ data.groupby('Education Level')['Years of Education'].value_counts()
 ```
 
 ```python
-data['Professional School']= data['Education level'].apply(lambda x: 1 if 'Professional' in x else 0)
+data['Professional School']= data['Education Level'].apply(lambda x: 1 if 'Professional' in x else 0)
+test_data['Professional School']= test_data['Education Level'].apply(lambda x: 1 if 'Professional' in x else 0)
+```
+
+```python
+data['Native Continent'].value_counts()
+```
+
+```python
+data=data.drop(columns='Native Continent').merge(pd.get_dummies(data['Native Continent'],prefix='Continent').iloc[:,:-1],on=data.index, left_index=True)
+test_data=test_data.drop(columns='Native Continent').merge(pd.get_dummies(test_data['Native Continent'],prefix='Continent').iloc[:,:-1],on=test_data.index, left_index=True)
+```
+
+```python
+data.drop(columns='key_0',inplace=True)
+test_data.drop(columns='key_0',inplace=True)
+```
+
+```python
+data['Lives with'].value_counts()
+```
+
+```python
+data['Lives_Spouse']=data['Lives with'].apply(lambda x: 1 if x in['Husband','Wife'] else 0)
+test_data['Lives_Spouse']=test_data['Lives with'].apply(lambda x: 1 if x in['Husband','Wife'] else 0)
+```
+
+```python
+data['Lives_Children']=data['Lives with'].apply(lambda x: 1 if x in 'Children' else 0)
+test_data['Lives_Children']=test_data['Lives with'].apply(lambda x: 1 if x in 'Children' else 0)
+```
+
+```python
+data['Lives_Other']=data['Lives with'].apply(lambda x: 1 if 'Other' in x else 0)
+test_data['Lives_Other']=test_data['Lives with'].apply(lambda x: 1 if 'Other' in x else 0)
+```
+
+```python
+data['Lives_Northbury']=data['Base Area'].apply(lambda x: 1 if 'Northbury' in x else 0)
+test_data['Lives_Northbury']=test_data['Base Area'].apply(lambda x: 1 if 'Northbury' in x else 0)
+```
+
+```python
+data=data.drop(columns='Role').merge(pd.get_dummies(data['Role'],prefix='Role').iloc[:,:-1],on=data.index, left_index=True)
+data.drop(columns='key_0',inplace=True)
+test_data=test_data.drop(columns='Role').merge(pd.get_dummies(test_data['Role'],prefix='Role').iloc[:,:-1],on=test_data.index, left_index=True)
+test_data.drop(columns='key_0',inplace=True)
+```
+
+```python
+data_encoded=data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
+```
+
+```python
+test_data_encoded=test_data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
+```
+
+```python
+target=data_encoded['Income']
+data_encoded.drop(columns='Income',inplace=True)
+```
+
+## Model with Encoded Vars
+
+```python
+X_train, X_val, y_train, y_val = train_test_split(data_encoded,
+                                                  target,
+                                                  test_size=0.25,
+                                                  stratify=target,
+                                                  random_state=35)
+```
+
+```python
+df_model=batch_model_update(df_model,'Encoded Vars F1 Score')
+df_model
+```
+
+```python
+randForest = RandomForestClassifier(max_depth=10, random_state=0)
+randForest.fit(X_train, y_train)
+evaluate(randForest)
+```
+
+```python
+results=pd.concat([test_data_encoded, pd.DataFrame(randForest.predict(test_data_encoded), index=test_data_encoded.index)],axis=1)
+```
+
+```python
+results=results.iloc[:,-1:]
+```
+
+```python
+results.index.rename('CITIZEN_ID',inplace=True)
+```
+
+```python
+results.rename(columns={0:'Income'},inplace=True)
+```
+
+```python
+results.to_csv(path_or_buf='results.csv')
 ```
 
 ## Possible variables
@@ -621,6 +767,11 @@ data['Professional School']= data['Education level'].apply(lambda x: 1 if 'Profe
 * years_of_edu_per_age
 * Education Level(The PostGraduation Paradox)
 * gender (from the title that comes before the name) 
+
+```python
+data['Age'] = data['Birthday'].apply(lambda x: datetime.strptime(x[-4:], "%Y").date()).astype('datetime64[ns]')
+data['Age'] = data['Age'].apply(lambda x: 2048 - x.year)
+```
 
 ```python
 data['years_of_edu_per_age'] = data['Years of Education'] / data['Age']
