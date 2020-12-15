@@ -292,7 +292,7 @@ def f1_evaluation(model):
 
 ```python
 def batch_model_creation():
-    model_df = pd.DataFrame(columns=['Model_Name', 'F1_Score_Initial'])
+    model_df = pd.DataFrame(columns=['Model_Name', 'F1 Score Initial'])
     
     # Random Forest
     randForest = RandomForestClassifier(max_depth=10, random_state=0)
@@ -373,24 +373,24 @@ def batch_model_update(model_df, score_name):
 
 ```python
 df_model = batch_model_creation()
+df_model
 ```
 
 ## Results Exporting
 
 ```python
-results=pd.concat([X_test_metrics, pd.DataFrame(randForest.predict(X_test_metrics), index=X_metrics.index)],axis=1)
+def export_results(model, nversion,test_data):
+    results=pd.concat([test_data, pd.DataFrame(model.predict(test_data), index=test_data.index)],axis=1)
+    results=results.iloc[:,-1:]
+    results.index.rename('CITIZEN_ID',inplace=True)
+    results.rename(columns={0:'Income'},inplace=True)
+    results.to_csv(path_or_buf='subs/Group48_Version'+str(nversion)+'.csv')
 ```
 
 ```python
-results=results.iloc[:,-1:]
-```
-
-```python
-results.index.rename('CITIZEN_ID',inplace=True)
-```
-
-```python
-results.to_csv(path_or_buf='results.csv')
+randForest = RandomForestClassifier(max_depth=10, random_state=0)
+randForest.fit(X_train, y_train)
+#export_results(randForest,1,X_test_metrics)
 ```
 
 ```python
@@ -552,10 +552,6 @@ data_no_outliers=data[filters1]
 #### Modeling no Outliers
 
 ```python
-reset_model_data()
-```
-
-```python
 target = data_no_outliers['Income']
 X = data_no_outliers.drop(columns='Income')
 ```
@@ -588,23 +584,7 @@ evaluate(randForest)
 ```
 
 ```python
-results=pd.concat([X_test_metrics, pd.DataFrame(randForest.predict(X_test_metrics), index=X_test_metrics.index)],axis=1)
-```
-
-```python
-results=results.iloc[:,-1:]
-```
-
-```python
-results.index.rename('CITIZEN_ID',inplace=True)
-```
-
-```python
-results.rename(columns={0:'Income'},inplace=True)
-```
-
-```python
-results.to_csv(path_or_buf='results.csv')
+#export_results(randForest,2,X_test_metrics)
 ```
 
 ## Variables to transform
@@ -616,16 +596,8 @@ results.to_csv(path_or_buf='results.csv')
 *Continent
 
 ```python
-data['Marital Status'].value_counts()
-```
-
-```python
 data['is_Married']= data['Marital Status'].apply(lambda x: 1 if x in ['Married - Spouse in the Army','Married', 'Married - Spouse Missing'] else 0)
 test_data['is_Married']= test_data['Marital Status'].apply(lambda x: 1 if x in ['Married - Spouse in the Army','Married', 'Married - Spouse Missing'] else 0)
-```
-
-```python
-data['is_Married'].value_counts()
 ```
 
 ```python
@@ -741,26 +713,30 @@ evaluate(randForest)
 ```
 
 ```python
-results=pd.concat([test_data_encoded, pd.DataFrame(randForest.predict(test_data_encoded), index=test_data_encoded.index)],axis=1)
+export_results(randForest,3,test_data_encoded)
+```
+
+### Encoded Vars no outliers
+
+```python
+data_encoded_out=data_encoded[filters1].copy()
+target_no_out=target.loc[data_encoded_out.index]
 ```
 
 ```python
-results=results.iloc[:,-1:]
+X_train, X_val, y_train, y_val = train_test_split(data_encoded_out,
+                                                  target_no_out,
+                                                  test_size=0.25,
+                                                  stratify=target_no_out,
+                                                  random_state=35)
 ```
 
 ```python
-results.index.rename('CITIZEN_ID',inplace=True)
+df_model=batch_model_update(df_model,'Encoded Vars no Outliers F1 Score')
+df_model
 ```
 
-```python
-results.rename(columns={0:'Income'},inplace=True)
-```
-
-```python
-results.to_csv(path_or_buf='results.csv')
-```
-
-## Possible variables
+# Feature Extraction
 
 * is_group_X(multiple binaries)
 * has_children
@@ -774,15 +750,24 @@ data['Age'] = data['Age'].apply(lambda x: 2048 - x.year)
 ```
 
 ```python
-data['years_of_edu_per_age'] = data['Years of Education'] / data['Age']
+test_data['Age'] = test_data['Birthday'].apply(lambda x: datetime.strptime(x[-4:], "%Y").date()).astype('datetime64[ns]')
+test_data['Age'] = test_data['Age'].apply(lambda x: 2048 - x.year)
 ```
 
 ```python
-data['Name'].apply(lambda x: x.split(' ')[0]).value_counts()
+data['Education per Age'] = data['Years of Education'] / data['Age']
+```
+
+```python
+test_data['Education per Age'] = test_data['Years of Education'] / test_data['Age']
 ```
 
 ```python
 data['is_Male']= data['Name'].apply(lambda x: 1 if x.split(' ')[0]=='Mr.' else 0)
+```
+
+```python
+test_data['is_Male']= test_data['Name'].apply(lambda x: 1 if x.split(' ')[0]=='Mr.' else 0)
 ```
 
 ```python
@@ -791,4 +776,101 @@ data['is_group_a'] = data['is_group_a'].apply(lambda x: 1 if x == 0 else 0)
 data['is_group_b'] = data['Money Received'].apply(lambda x: 1 if x > 0 else 0)
 data['is_group_c'] = data['Ticket Price'].apply(lambda x: 1 if x > 0 else 0)
 data[['is_group_a', 'is_group_b', 'is_group_c']]
+```
+
+```python
+test_data['is_group_a'] = test_data['Ticket Price'] + test_data['Money Received']
+test_data['is_group_a'] = test_data['is_group_a'].apply(lambda x: 1 if x == 0 else 0)
+test_data['is_group_b'] = test_data['Money Received'].apply(lambda x: 1 if x > 0 else 0)
+test_data['is_group_c'] = test_data['Ticket Price'].apply(lambda x: 1 if x > 0 else 0)
+```
+
+```python
+data_transformed=data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
+```
+
+```python
+test_transformed=test_data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
+```
+
+```python
+target_transformed=data['Income']
+data_transformed=data_transformed.drop(columns='Income')
+```
+
+### Model with new Transformed Variables
+
+```python
+X_train, X_val, y_train, y_val = train_test_split(data_transformed,
+                                                  target_transformed,
+                                                  test_size=0.25,
+                                                  stratify=target_transformed,
+                                                  random_state=35)
+```
+
+```python
+df_model=batch_model_update(df_model,'Transformed Vars F1 Score')
+df_model
+```
+
+```python
+randForest = RandomForestClassifier(max_depth=10, random_state=0)
+randForest.fit(X_train, y_train)
+evaluate(randForest)
+```
+
+```python
+export_results(randForest,5,test_transformed)
+```
+
+```python
+randForest.feature_importances_
+```
+
+```python
+test_transformed.columns
+```
+
+```python
+feature_importance=pd.DataFrame([test_transformed.columns,randForest.feature_importances_])
+feature_importance=feature_importance.T
+```
+
+```python
+feature_importance.rename(columns={0:'Feature',1:'Importance'},inplace=True)
+```
+
+```python
+feature_importance
+```
+
+```python
+plt.figure(figsize=(10,10))
+sns.barplot(x='Feature',y='Importance',data=feature_importance, order=feature_importance.sort_values('Importance', ascending=False).Feature)
+plt.xticks(rotation='vertical')
+```
+
+```python
+# Prepare figure
+fig = plt.figure(figsize=(20, 20))
+# Obtain correlation matrix. Round the values to 2 decimal cases. Use the DataFrame corr() and round() method.
+corr = np.round(data.corr(method="pearson"), decimals=2)
+# Build annotation matrix (values above |0.5| will appear annotated in the plot)
+mask_annot = np.absolute(corr.values) >= 0.5
+annot = np.where(mask_annot, corr.values, np.full(corr.shape,"")) # Try to understand what this np.where() does
+# Plot heatmap of the correlation matrix
+sns.heatmap(data=corr, annot=annot, cmap=sns.diverging_palette(220, 10, as_cmap=True), 
+            fmt='s', vmin=-1, vmax=1, center=0, square=True, linewidths=.5)
+# Layout
+fig.subplots_adjust(top=0.95)
+fig.suptitle("Correlation Matrix", fontsize=20)
+plt.show()
+```
+
+```python
+data.corr(method='spearman')['Income'].abs().sort_values(ascending=False)
+```
+
+```python
+
 ```
