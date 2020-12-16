@@ -43,7 +43,7 @@ from pandas_profiling import ProfileReport
 from datetime import datetime
 
 # Model Libraries
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LogisticRegression
@@ -51,9 +51,10 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.pipeline import Pipeline
-from sklearn.feature_selection import VarianceThreshold, RFECV
+from sklearn.feature_selection import VarianceThreshold, RFECV, SelectFromModel
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.svm import SVC
+
 
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn import tree
@@ -711,7 +712,7 @@ evaluate(randForest)
 ```
 
 ```python
-export_results(randForest,3,test_data_encoded)
+#export_results(randForest,3,test_data_encoded)
 ```
 
 ### Encoded Vars no outliers
@@ -818,7 +819,7 @@ evaluate(randForest)
 ```
 
 ```python
-export_results(randForest,5,test_transformed)
+#export_results(randForest,5,test_transformed)
 ```
 
 ## Model with Transformed Vars with no Outliers
@@ -1008,7 +1009,7 @@ test_t_uncorr=test_transformed.drop(columns=['is_group_c','is_Married'])
 ```
 
 ```python
-export_results(var_pipe,7,test_t_uncorr)
+#export_results(var_pipe,7,test_t_uncorr)
 ```
 
 #### Std first, RFE after
@@ -1028,7 +1029,7 @@ evaluate(var_pipe)
 ```
 
 ```python
-df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated Pipe RFE F1 Score')
+df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated Pipe STD RFE F1 Score')
 df_model
 ```
 
@@ -1036,21 +1037,31 @@ df_model
 data_transformed.iloc[:,var_pipe.named_steps['Feature Selection'].get_support(indices=True)]
 ```
 
-```python
+#### Tree Based Feature Selection
 
+```python
+var_pipe=Pipeline([ 
+    ('Impurity Based Feature Selection',SelectFromModel(ExtraTreesClassifier(n_estimators=10))),
+    ('Classifier', RandomForestClassifier(max_depth = 10, random_state = 0))
+])
+    
+var_pipe.fit(X_train,y_train)
 ```
 
 ```python
-
+evaluate(var_pipe)
 ```
 
 ```python
-
+df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated Pipe Tree Based F1 Score')
+df_model
 ```
 
 ```python
-
+data_transformed.iloc[:,var_pipe.named_steps['Impurity Based Feature Selection'].get_support(indices=True)]
 ```
+
+## Feature Importance
 
 ```python
 feature_importance=pd.DataFrame([test_transformed.columns,randForest.feature_importances_])
@@ -1062,4 +1073,204 @@ feature_importance
 plt.figure(figsize=(10,10))
 sns.barplot(x='Feature',y='Importance',data=feature_importance, order=feature_importance.sort_values('Importance', ascending=False).Feature)
 ax_ticks=plt.xticks(rotation='vertical')
+```
+
+# Fine Tuning
+
+
+## Random Forest
+
+
+### Max Depth
+
+```python
+max_depths=range(1,30)
+f1_scores_val=[]
+f1_scores_train=[]
+for i in max_depths:    
+    randForest = RandomForestClassifier(max_depth=i, random_state=0)
+    randForest.fit(X_train, y_train)
+    f1_scores_train.append(f1_score(y_train, randForest.predict(X_train), average='micro'))
+    f1_scores_val.append(f1_evaluation(randForest))
+```
+
+```python
+depths={'Max Depth': max_depths, 'F1 Score Train': f1_scores_train, 'F1 Score Validation': f1_scores_val}
+depths=pd.DataFrame(depths)
+depths['diff']=depths['F1 Score Train']-depths['F1 Score Validation']
+depths
+```
+
+```python
+fig, ax = plt.subplots()
+
+depths.plot(x = 'Max Depth', y = 'F1 Score Train', ax = ax) 
+depths.plot(x = 'Max Depth', y = 'F1 Score Validation', ax = ax)
+```
+
+#### MaxDepth==9
+
+```python
+randForest = RandomForestClassifier(max_depth=9, random_state=0,)
+randForest.fit(X_train, y_train)
+evaluate(randForest)
+```
+
+```python
+#export_results(randForest,8,test_t_uncorr)
+```
+
+#### MaxDepth==11
+
+```python
+randForest = RandomForestClassifier(max_depth=11, random_state=0,)
+randForest.fit(X_train, y_train)
+evaluate(randForest)
+```
+
+```python
+#export_results(randForest,9,test_t_uncorr)
+```
+
+### Number Estimators (Number of Trees)
+
+```python
+n_estimator=[10,20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 140, 150, 200]
+f1_scores_val=[]
+f1_scores_train=[]
+for i in n_estimator:    
+    randForest = RandomForestClassifier(max_depth=11, n_estimators=i, random_state=0)
+    randForest.fit(X_train, y_train)
+    f1_scores_train.append(f1_score(y_train, randForest.predict(X_train), average='micro'))
+    f1_scores_val.append(f1_evaluation(randForest))
+```
+
+```python
+NEstimator={'N Estimators': n_estimator, 'F1 Score Train': f1_scores_train, 'F1 Score Validation': f1_scores_val}
+NEstimator=pd.DataFrame(NEstimator)
+NEstimator['diff']=NEstimator['F1 Score Train']-NEstimator['F1 Score Validation']
+NEstimator
+```
+
+```python
+fig, ax = plt.subplots()
+
+NEstimator.plot(x = 'N Estimators', y = 'F1 Score Train', ax = ax) 
+NEstimator.plot(x = 'N Estimators', y = 'F1 Score Validation', ax = ax)
+```
+
+## Decision Tree
+
+
+### Max Depth
+
+```python
+max_depths=range(1,30)
+f1_scores_val=[]
+f1_scores_train=[]
+for i in max_depths:    
+    dt_gini = DecisionTreeClassifier(max_depth = i, random_state=0)
+    dt_gini.fit(X_train, y_train)
+    f1_scores_train.append(f1_score(y_train, dt_gini.predict(X_train), average='micro'))
+    f1_scores_val.append(f1_evaluation(dt_gini))
+```
+
+```python
+depths={'Max Depth': max_depths, 'F1 Score Train': f1_scores_train, 'F1 Score Validation': f1_scores_val}
+depths=pd.DataFrame(depths)
+depths['diff']=depths['F1 Score Train']-depths['F1 Score Validation']
+depths
+```
+
+```python
+fig, ax = plt.subplots()
+
+depths.plot(x = 'Max Depth', y = 'F1 Score Train', ax = ax) 
+depths.plot(x = 'Max Depth', y = 'F1 Score Validation', ax = ax)
+```
+
+### Max Depth==7
+
+```python
+dt_gini = DecisionTreeClassifier(max_depth = 7, random_state=0)
+dt_gini.fit(X_train, y_train)
+evaluate(dt_gini)
+```
+
+### Max Depth==8
+
+```python
+dt_gini = DecisionTreeClassifier(max_depth = 8, random_state=0)
+dt_gini.fit(X_train, y_train)
+evaluate(dt_gini)
+```
+
+## Multi Layer Perceptron
+
+```python
+hidden_layer=range(1,30)
+f1_scores_val=[]
+f1_scores_train=[]
+for i in max_depths:    
+    mlp = MLPClassifier()
+    mlp.fit(X_train, y_train)
+    f1_scores_train.append(f1_score(y_train, dt_gini.predict(X_train), average='micro'))
+    f1_scores_val.append(f1_evaluation(dt_gini))
+```
+
+```python
+depths={'Max Depth': max_depths, 'F1 Score Train': f1_scores_train, 'F1 Score Validation': f1_scores_val}
+depths=pd.DataFrame(depths)
+depths['diff']=depths['F1 Score Train']-depths['F1 Score Validation']
+depths
+```
+
+```python
+fig, ax = plt.subplots()
+
+depths.plot(x = 'Max Depth', y = 'F1 Score Train', ax = ax) 
+depths.plot(x = 'Max Depth', y = 'F1 Score Validation', ax = ax)
+```
+
+```python
+
+```
+
+```python
+
+```
+
+```python
+
+```
+
+```python
+ # Random Forest
+    randForest = RandomForestClassifier(max_depth=10, random_state=0,)
+    randForest.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(randForest)) 
+    
+    dt_gini = DecisionTreeClassifier(max_depth = 10, random_state=0)
+    dt_gini.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(dt_gini)) 
+    
+    # Multi-layer Perceptron
+    mlp = MLPClassifier()
+    mlp.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(mlp)) 
+    
+    # Logistic Regression
+    log_model = LogisticRegression()
+    log_model.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(log_model)) 
+    
+    # K-Nearest Neighbors
+    knn = KNeighborsClassifier()
+    knn.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(knn)) 
+    
+    # Gaussian Model
+    nb_model = GaussianNB()
+    nb_model.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(nb_model))
 ```
