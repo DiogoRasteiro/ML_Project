@@ -50,8 +50,12 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeRegressor
+from sklearn.pipeline import Pipeline
+from sklearn.feature_selection import VarianceThreshold, RFECV
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.svm import SVC
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn import tree
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, f1_score, recall_score, classification_report
 from sklearn.tree import export_graphviz
@@ -299,13 +303,11 @@ def batch_model_creation():
     randForest.fit(X_train, y_train)
     model_df.loc[0] = ['Random Forest', f1_evaluation(randForest)] 
     
+    #Decision Tree
     dt_gini = DecisionTreeClassifier(max_depth = 10, random_state=0)
     dt_gini.fit(X_train, y_train)
     model_df.loc[1] = ['Decision Tree GINI', f1_evaluation(dt_gini)] 
     
-    dt_ent = DecisionTreeClassifier(max_depth = 10, random_state=0)
-    dt_ent.fit(X_train, y_train)
-    model_df.loc[2] = ['Decision Tree Entropy', f1_evaluation(dt_ent)] 
     
     # Multi-layer Perceptron
     mlp = MLPClassifier()
@@ -341,10 +343,6 @@ def batch_model_update(model_df, score_name):
     dt_gini = DecisionTreeClassifier(max_depth = 10, random_state=0)
     dt_gini.fit(X_train, y_train)
     new_scores.append(f1_evaluation(dt_gini)) 
-    
-    dt_ent = DecisionTreeClassifier(max_depth = 10, random_state=0)
-    dt_ent.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(dt_ent)) 
     
     # Multi-layer Perceptron
     mlp = MLPClassifier()
@@ -794,7 +792,7 @@ test_transformed=test_data.drop(columns=['Name','Birthday','Marital Status','Liv
 ```
 
 ```python
-target_transformed=data['Income']
+target_transformed=data_transformed['Income']
 data_transformed=data_transformed.drop(columns='Income')
 ```
 
@@ -823,32 +821,31 @@ evaluate(randForest)
 export_results(randForest,5,test_transformed)
 ```
 
+## Model with Transformed Vars with no Outliers
+
 ```python
-randForest.feature_importances_
+data_transformed_no_out=data_transformed[filters1]
+target_transformed_no_out=data.loc[data_transformed_no_out.index]['Income']
+
+X_train, X_val, y_train, y_val = train_test_split(data_transformed_no_out,
+                                                  target_transformed_no_out,
+                                                  test_size=0.25,
+                                                  stratify=target_transformed_no_out,
+                                                  random_state=35)
 ```
 
 ```python
-test_transformed.columns
+df_model=batch_model_update(df_model,'Transformed Vars No Outliers F1 Score')
+df_model
 ```
 
 ```python
-feature_importance=pd.DataFrame([test_transformed.columns,randForest.feature_importances_])
-feature_importance=feature_importance.T
+randForest = RandomForestClassifier(max_depth=10, random_state=0)
+randForest.fit(X_train, y_train)
+evaluate(randForest)
 ```
 
-```python
-feature_importance.rename(columns={0:'Feature',1:'Importance'},inplace=True)
-```
-
-```python
-feature_importance
-```
-
-```python
-plt.figure(figsize=(10,10))
-sns.barplot(x='Feature',y='Importance',data=feature_importance, order=feature_importance.sort_values('Importance', ascending=False).Feature)
-plt.xticks(rotation='vertical')
-```
+## Correlation Analysis
 
 ```python
 # Prepare figure
@@ -872,5 +869,197 @@ data.corr(method='spearman')['Income'].abs().sort_values(ascending=False)
 ```
 
 ```python
+##Come back to the previous Step
+data_transformed=data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
+test_transformed=test_data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
 
+target_transformed= data_transformed['Income']
+data_transformed.drop(columns='Income', inplace=True)
+
+```
+
+```python
+data_t_uncorr=data_transformed.drop(columns=['is_group_c', 'is_Married'])
+```
+
+```python
+X_train, X_val, y_train, y_val = train_test_split(data_t_uncorr,
+                                                  target_transformed,
+                                                  test_size=0.25,
+                                                  stratify=target_transformed,
+                                                  random_state=35)
+```
+
+```python
+df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated F1 Score')
+df_model
+```
+
+## Data Standartization
+
+```python
+scaler=MinMaxScaler()
+data_t_scaled=pd.DataFrame(scaler.fit_transform(data_t_uncorr), index=data_t_uncorr.index, columns=data_t_uncorr.columns)
+data_t_scaled
+```
+
+```python
+X_train, X_val, y_train, y_val = train_test_split(data_t_scaled,
+                                                  target_transformed,
+                                                  test_size=0.25,
+                                                  stratify=target_transformed,
+                                                  random_state=35)
+```
+
+```python
+df_model=batch_model_update(df_model,'Transformed Vars, Uncorrelated Scaled F1 Score')
+df_model
+```
+
+```python
+scaler=MinMaxScaler()
+test_t_scaled=pd.DataFrame(scaler.fit_transform(test_transformed), index=test_transformed.index, columns=test_transformed.columns)
+test_t_scaled
+```
+
+```python
+#export_results(randForest,6,test_t_scaled)
+```
+
+## Data Standartization no Outliers
+
+```python
+scaler=MinMaxScaler()
+data_t_scaled_out=pd.DataFrame(scaler.fit_transform(data_transformed_no_out), index=data_transformed_no_out.index, columns=data_transformed_no_out.columns)
+data_t_scaled_out
+```
+
+```python
+X_train, X_val, y_train, y_val = train_test_split(data_t_scaled_out,
+                                                  target_transformed_no_out,
+                                                  test_size=0.25,
+                                                  stratify=target_transformed_no_out,
+                                                  random_state=35)
+```
+
+```python
+df_model=batch_model_update(df_model,'Transformed Vars Scaled No Out F1 Score')
+df_model
+```
+
+## Feature Selection
+
+
+#### Standardization First, VarianceThreshold After
+
+```python
+X_train, X_val, y_train, y_val = train_test_split(data_t_uncorr,
+                                                  target_transformed,
+                                                  test_size=0.25,
+                                                  stratify=target_transformed,
+                                                  random_state=35)
+```
+
+```python
+var_pipe=Pipeline([
+    ('Standardization', MinMaxScaler()),
+    ('Feature Selection', VarianceThreshold(threshold = .8 * (1 - .8))),
+    ('Classifier', RandomForestClassifier(max_depth = 10, random_state = 0))
+])
+    
+var_pipe.fit(X_train,y_train)
+```
+
+```python
+evaluate(var_pipe)
+```
+
+```python
+data_transformed.iloc[:,var_pipe.named_steps['Feature Selection'].get_support(indices=True)]
+```
+
+#### VarianceThreshold First, Standardization After
+
+```python
+var_pipe=Pipeline([
+    ('Feature Selection', VarianceThreshold(threshold = .8 * (1 - .8))),
+    ('Standardization', MinMaxScaler()),
+    ('Classifier', RandomForestClassifier(max_depth = 10, random_state = 0))
+])
+    
+var_pipe.fit(X_train,y_train)
+```
+
+```python
+evaluate(var_pipe)
+```
+
+```python
+df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated Pipe VarThresh F1 Score')
+df_model
+```
+
+```python
+data_transformed.iloc[:,var_pipe.named_steps['Feature Selection'].get_support(indices=True)]
+```
+
+```python
+test_t_uncorr=test_transformed.drop(columns=['is_group_c','is_Married'])
+```
+
+```python
+export_results(var_pipe,7,test_t_uncorr)
+```
+
+#### Std first, RFE after
+
+```python
+var_pipe=Pipeline([ 
+    ('Standardization', MinMaxScaler()),
+    ('Feature Selection', RFECV(estimator=SVC(kernel='linear'),step=1,cv=StratifiedKFold(2), scoring='f1_micro')),
+    ('Classifier', RandomForestClassifier(max_depth = 10, random_state = 0))
+])
+    
+var_pipe.fit(X_train,y_train)
+```
+
+```python
+evaluate(var_pipe)
+```
+
+```python
+df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated Pipe RFE F1 Score')
+df_model
+```
+
+```python
+data_transformed.iloc[:,var_pipe.named_steps['Feature Selection'].get_support(indices=True)]
+```
+
+```python
+
+```
+
+```python
+
+```
+
+```python
+
+```
+
+```python
+
+```
+
+```python
+feature_importance=pd.DataFrame([test_transformed.columns,randForest.feature_importances_])
+feature_importance=feature_importance.T
+feature_importance.rename(columns={0:'Feature',1:'Importance'},inplace=True)
+feature_importance
+
+##Feature Importance Graph
+plt.figure(figsize=(10,10))
+sns.barplot(x='Feature',y='Importance',data=feature_importance, order=feature_importance.sort_values('Importance', ascending=False).Feature)
+ax_ticks=plt.xticks(rotation='vertical')
 ```
