@@ -51,8 +51,9 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.pipeline import Pipeline
+from sklearn.ensemble import AdaBoostClassifier
 from sklearn.feature_selection import VarianceThreshold, RFECV
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, FunctionTransformer
 from sklearn.svm import SVC
 
 from sklearn.model_selection import train_test_split, StratifiedKFold
@@ -61,6 +62,10 @@ from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, f
 from sklearn.tree import export_graphviz
 import graphviz
 import pydotplus
+
+import warnings
+warnings.filterwarnings('ignore')
+warnings.simplefilter('ignore')
 ```
 
 ## Importing Data
@@ -92,20 +97,15 @@ Backup the data in case we make significant changes we need to revert
 backup = data.copy()
 ```
 
-```python
-data = backup.copy()
-```
-
 Because we need to handle metric and non-metrical data in a different way, let us create a way to filter them in case it is necessary.
 
 ```python
-numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
-metric_features = data.select_dtypes(include=numerics).columns
-non_metric_features = data.columns.drop(metric_features).to_list()
+get_metric_features = FunctionTransformer(lambda x: x.select_dtypes(include=np.number))
+metric_features = get_metric_features.fit_transform(data).columns
 ```
 
 ```python
-metric_features
+get_metric_features.fit_transform(data).head()
 ```
 
 ### Pandas Profiling
@@ -257,24 +257,6 @@ First we split the dataframe, in order to separate the target variable from the 
 For this initial analysis, we'll only consider the 4 metric variables present in the initial dataset.
 
 ```python
-target = data['Income']
-X = data.drop(columns='Income')
-```
-
-```python
-X_metrics = data[metric_features[:-1]]
-X_test_metrics = test_data[metric_features[:-1]] 
-```
-
-```python
-X_train, X_val, y_train, y_val = train_test_split(X_metrics,
-                                                  target,
-                                                  test_size=0.25,
-                                                  stratify=target,
-                                                  random_state=35)
-```
-
-```python
 def metrics(model, X_train, X_val, y_train, y_val):
     pred_train = model.predict(X_train)
     pred_val = model.predict(X_val)
@@ -290,83 +272,134 @@ def evaluate(model):
     f1_micro = f1_evaluation(model)
     print(f'The Micro Average of the F1 Score is : {f1_micro}')
     
-def f1_evaluation(model):
+def f1_evaluation(X_val, y_val, model):
     return f1_score(y_val, model.predict(X_val), average='micro')
 ```
 
 ```python
 def batch_model_creation():
-    model_df = pd.DataFrame(columns=['Model_Name', 'F1 Score Initial'])
-    
+    model_df = pd.DataFrame(columns=['Model_Name', 'Initial'])
+                            
+    input_data = get_metric_features.fit_transform(data)
+    target = input_data['Income']
+    X = input_data.drop(columns='Income')
+
+    X_train, X_val, y_train, y_val = train_test_split(X,
+                                                      target,
+                                                      test_size=0.25,
+                                                      stratify=target,
+                                                      random_state=35)
     # Random Forest
     randForest = RandomForestClassifier(max_depth=10, random_state=0)
     randForest.fit(X_train, y_train)
-    model_df.loc[0] = ['Random Forest', f1_evaluation(randForest)] 
-    
+    model_df.loc[0] = ['Random Forest', f1_evaluation(X_val, y_val, randForest)]
+
     #Decision Tree
-    dt_gini = DecisionTreeClassifier(max_depth = 10, random_state=0)
+    dt_gini = DecisionTreeClassifier(max_depth=10, random_state=0)
     dt_gini.fit(X_train, y_train)
-    model_df.loc[1] = ['Decision Tree GINI', f1_evaluation(dt_gini)] 
-    
-    
+    model_df.loc[1] = ['Decision Tree GINI', f1_evaluation(X_val, y_val, dt_gini)]
+
     # Multi-layer Perceptron
-    mlp = MLPClassifier()
+    mlp = MLPClassifier(random_state=0)
     mlp.fit(X_train, y_train)
-    model_df.loc[3] = ['Multi-layer Perceptron', f1_evaluation(mlp)] 
-    
+    model_df.loc[2] = ['Multi-layer Perceptron', f1_evaluation(X_val, y_val, mlp)]
+
     # Logistic Regression
-    log_model = LogisticRegression()
+    log_model = LogisticRegression(random_state=0)
     log_model.fit(X_train, y_train)
-    model_df.loc[4] = ['Logistic Regression', f1_evaluation(log_model)] 
-    
+    model_df.loc[3] = ['Logistic Regression', f1_evaluation(X_val, y_val, log_model)]
+
     # K-Nearest Neighbors
     knn = KNeighborsClassifier()
     knn.fit(X_train, y_train)
-    model_df.loc[5] = ['K-Nearest Neighbors', f1_evaluation(knn)] 
-    
+    model_df.loc[4] = ['K-Nearest Neighbors', f1_evaluation(X_val, y_val, knn)]
+
     # Gaussian Model
     nb_model = GaussianNB()
     nb_model.fit(X_train, y_train)
-    model_df.loc[6] = ['GaussianNB', f1_evaluation(nb_model)] 
+    model_df.loc[5] = ['GaussianNB', f1_evaluation(X_val, y_val, nb_model)]
     
+    # AdaBoost
+    ada_model = AdaBoostClassifier(n_estimators=100, random_state=0)
+    ada_model.fit(X_train, y_train)
+    model_df.loc[6] = ['AdaBoost', f1_evaluation(X_val, y_val, ada_model)]
     
+
     return model_df
 
-def batch_model_update(model_df, score_name):
+
+def batch_model_update(data_steps, model_steps, model_df, score_name):
     new_scores = []
     
+    input_data = data_steps.fit_transform(data)
+
+    target = input_data['Income']
+    X = input_data.drop(columns='Income')
+
+    X_train, X_val, y_train, y_val = train_test_split(X,
+                                                      target,
+                                                      test_size=0.25,
+                                                      stratify=target,
+                                                      random_state=35)
+
     # Random Forest
-    randForest = RandomForestClassifier(max_depth=10, random_state=0)
+    randForest = Pipeline([('Classifier',
+                            RandomForestClassifier(max_depth=10,
+                                                   random_state=0))])
+    for i, s in enumerate(model_steps):
+        randForest.steps.insert(i, s)
     randForest.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(randForest)) 
-    
-    dt_gini = DecisionTreeClassifier(max_depth = 10, random_state=0)
+    new_scores.append(f1_evaluation(X_val, y_val, randForest))
+
+    # Decision Tree
+    dt_gini = Pipeline([('Classifier',
+                         DecisionTreeClassifier(max_depth=10,
+                                                random_state=0))])
+    for i, s in enumerate(model_steps):
+        dt_gini.steps.insert(i, s)
     dt_gini.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(dt_gini)) 
-    
+    new_scores.append(f1_evaluation(X_val, y_val, dt_gini))
+
     # Multi-layer Perceptron
-    mlp = MLPClassifier()
+    mlp = Pipeline([('Classifier', MLPClassifier(random_state=0))])
+    for i, s in enumerate(model_steps):
+        mlp.steps.insert(i, s)
     mlp.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(mlp)) 
-    
+    new_scores.append(f1_evaluation(X_val, y_val, mlp))
+
     # Logistic Regression
-    log_model = LogisticRegression()
+    log_model = Pipeline([('Classifier', LogisticRegression(random_state=0))])
+    for i, s in enumerate(model_steps):
+        log_model.steps.insert(i, s)
     log_model.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(log_model)) 
-    
+    new_scores.append(f1_evaluation(X_val, y_val, log_model))
+
     # K-Nearest Neighbors
-    knn = KNeighborsClassifier()
+    knn = Pipeline([('Classifier', KNeighborsClassifier())])
+    for i, s in enumerate(model_steps):
+        knn.steps.insert(i, s)
     knn.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(knn)) 
-    
+    new_scores.append(f1_evaluation(X_val, y_val, knn))
+
     # Gaussian Model
-    nb_model = GaussianNB()
+    nb_model = Pipeline([('Classifier', GaussianNB())])
+    for i, s in enumerate(model_steps):
+        nb_model.steps.insert(i, s)
     nb_model.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(nb_model))
+    new_scores.append(f1_evaluation(X_val, y_val, nb_model))
     
-    new_scores = pd.Series(data=new_scores, name=score_name, index=model_df.index)
+    # AdaBoost
+    ada_model = Pipeline([('Classifier', AdaBoostClassifier(n_estimators=100, random_state=0))])
+    for i, s in enumerate(model_steps):
+        ada_model.steps.insert(i, s)
+    ada_model.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(X_val, y_val, ada_model))
+    
+
+    new_scores = pd.Series(data=new_scores,
+                           name=score_name,
+                           index=model_df.index)
     return pd.concat([model_df, new_scores], axis=1)
-    
 ```
 
 ```python
@@ -540,49 +573,28 @@ filters1 = (
     ((data['Money Received']>=134) | (data['Money Received']==0))
     
 )
-len(data[filters1]) / len(data)
+len(data[filters1])
 ```
 
 ```python
-data_no_outliers=data[filters1]
+outlier_filter_transformer = FunctionTransformer(lambda x: x[filters1])
 ```
 
 #### Modeling no Outliers
 
 ```python
-target = data_no_outliers['Income']
-X = data_no_outliers.drop(columns='Income')
+no_outliers_pipeline = Pipeline([
+    ('Outlier Remove', outlier_filter_transformer),
+    ('Get Metric Features', get_metric_features)
+])
 ```
 
 ```python
-X_metrics = data_no_outliers[metric_features[:-1]]
-X_test_metrics = test_data[metric_features[:-1]] 
-```
-
-```python
-X_train, X_val, y_train, y_val = train_test_split(X_metrics,
-                                                  target,
-                                                  test_size=0.25,
-                                                  stratify=target,
-                                                  random_state=35)
-```
-
-```python
-df_model=batch_model_update(df_model, 'Post-Outliers F1 Score')
-```
-
-```python
+df_model = batch_model_update(model_steps=[],
+                   data_steps=no_outliers_pipeline,
+                   model_df=df_model,
+                   score_name='No Outliers')
 df_model
-```
-
-```python
-randForest = RandomForestClassifier(max_depth=10, random_state=0)
-randForest.fit(X_train, y_train)
-evaluate(randForest)
-```
-
-```python
-#export_results(randForest,2,X_test_metrics)
 ```
 
 ## Variables to transform
@@ -594,32 +606,24 @@ evaluate(randForest)
 *Continent
 
 ```python
-data['is_Married']= data['Marital Status'].apply(lambda x: 1 if x in ['Married - Spouse in the Army','Married', 'Married - Spouse Missing'] else 0)
-test_data['is_Married']= test_data['Marital Status'].apply(lambda x: 1 if x in ['Married - Spouse in the Army','Married', 'Married - Spouse Missing'] else 0)
+def is_married(df):
+    df = df.copy()
+    df['is_Married']= df['Marital Status'].apply(lambda x: 1 if x in ['Married - Spouse in the Army','Married', 'Married - Spouse Missing'] else 0)
+    return df.drop(columns='Marital Status')
+
+is_married_transformer = FunctionTransformer(is_married)
 ```
 
 ```python
-data['Private Sector'] = data['Employment Sector'].apply(lambda x: 1 if 'Private' in x else 0)
-test_data['Private Sector'] = test_data['Employment Sector'].apply(lambda x: 1 if 'Private' in x else 0)
-```
+def sector_binning(df):
+    df = df.copy()
+    df['Private Sector'] = df['Employment Sector'].apply(lambda x: 1 if 'Private' in x else 0)
+    df['Public Sector'] = df['Employment Sector'].apply(lambda x: 1 if 'Public' in x else 0)
+    df['Self Employed'] = df['Employment Sector'].apply(lambda x: 1 if 'Self' in x else 0)
+    df['Unemployed'] = df['Employment Sector'].apply(lambda x: 1 if 'Unemployed' in x else 0)
+    return df.drop(columns=['Employment Sector'])
 
-```python
-data['Public Sector'] = data['Employment Sector'].apply(lambda x: 1 if 'Public' in x else 0)
-test_data['Public Sector'] = test_data['Employment Sector'].apply(lambda x: 1 if 'Public' in x else 0)
-```
-
-```python
-data['Self Employed'] = data['Employment Sector'].apply(lambda x: 1 if 'Self' in x else 0)
-test_data['Self Employed'] = test_data['Employment Sector'].apply(lambda x: 1 if 'Self' in x else 0)
-```
-
-```python
-data['Unemployed'] = data['Employment Sector'].apply(lambda x: 1 if 'Unemployed' in x else 0)
-test_data['Unemployed'] = test_data['Employment Sector'].apply(lambda x: 1 if 'Unemployed' in x else 0)
-```
-
-```python
-data['Employment Sector'].value_counts()
+sector_binning_transformer = FunctionTransformer(sector_binning)
 ```
 
 ```python
@@ -627,8 +631,12 @@ data.groupby('Education Level')['Years of Education'].value_counts()
 ```
 
 ```python
-data['Professional School']= data['Education Level'].apply(lambda x: 1 if 'Professional' in x else 0)
-test_data['Professional School']= test_data['Education Level'].apply(lambda x: 1 if 'Professional' in x else 0)
+def is_professional(df):
+    df = df.copy()
+    df['Professional School'] = df['Education Level'].apply(lambda x: 1 if 'Professional' in x else 0)
+    return df.drop(columns=['Education Level'])
+
+is_professional_transformer = FunctionTransformer(is_professional)
 ```
 
 ```python
@@ -636,71 +644,75 @@ data['Native Continent'].value_counts()
 ```
 
 ```python
-data=data.drop(columns='Native Continent').merge(pd.get_dummies(data['Native Continent'],prefix='Continent').iloc[:,:-1],on=data.index, left_index=True)
-test_data=test_data.drop(columns='Native Continent').merge(pd.get_dummies(test_data['Native Continent'],prefix='Continent').iloc[:,:-1],on=test_data.index, left_index=True)
+def continent_dummies(df):
+    df = df.copy()
+    df = df.drop(columns='Native Continent').merge(pd.get_dummies(
+        df['Native Continent'], prefix='Continent').iloc[:, :-1],
+                                                       on=df.index,
+                                                       left_index=True)
+    return df.drop(columns = ['key_0'])
+
+continent_encoder = FunctionTransformer(continent_dummies)
 ```
 
 ```python
-data.drop(columns='key_0',inplace=True)
-test_data.drop(columns='key_0',inplace=True)
+def lives_with_bins(df):
+    df = df.copy()
+    df['Lives_Spouse']=df['Lives with'].apply(lambda x: 1 if x in['Husband','Wife'] else 0)
+    df['Lives_Children']=df['Lives with'].apply(lambda x: 1 if x in 'Children' else 0)
+    df['Lives_Other']=df['Lives with'].apply(lambda x: 1 if 'Other' in x else 0)
+    return df.drop(columns = 'Lives with')
+
+lives_with_encoder = FunctionTransformer(lives_with_bins)
 ```
 
 ```python
-data['Lives with'].value_counts()
+def lives_northbury(df):
+    df = df.copy()
+    df['Lives_Northbury']=df['Base Area'].apply(lambda x: 1 if 'Northbury' in x else 0)
+    return df.drop(columns = 'Base Area')
+
+lives_northbury_encoder = FunctionTransformer(lives_northbury)
 ```
 
 ```python
-data['Lives_Spouse']=data['Lives with'].apply(lambda x: 1 if x in['Husband','Wife'] else 0)
-test_data['Lives_Spouse']=test_data['Lives with'].apply(lambda x: 1 if x in['Husband','Wife'] else 0)
+def role_dummies(df):
+    df = df.copy()
+    df = df.drop(columns='Role').merge(pd.get_dummies(
+        df['Role'], prefix='Role').iloc[:, :-1],
+                                       on=df.index,
+                                       left_index=True)
+    return df.drop(columns='key_0')
+
+role_enconder = FunctionTransformer(role_dummies)
 ```
 
 ```python
-data['Lives_Children']=data['Lives with'].apply(lambda x: 1 if x in 'Children' else 0)
-test_data['Lives_Children']=test_data['Lives with'].apply(lambda x: 1 if x in 'Children' else 0)
-```
+variable_encoder = Pipeline([
+    ('is_married', is_married_transformer),
+    ('Sector', sector_binning_transformer),
+    ('Professional School', is_professional_transformer),
+    ('Native Continent', continent_encoder),
+    ('Lives With', lives_with_encoder),
+    ('Lives in Northbury', lives_northbury_encoder),
+    ('Role', role_enconder)
+])
 
-```python
-data['Lives_Other']=data['Lives with'].apply(lambda x: 1 if 'Other' in x else 0)
-test_data['Lives_Other']=test_data['Lives with'].apply(lambda x: 1 if 'Other' in x else 0)
-```
-
-```python
-data['Lives_Northbury']=data['Base Area'].apply(lambda x: 1 if 'Northbury' in x else 0)
-test_data['Lives_Northbury']=test_data['Base Area'].apply(lambda x: 1 if 'Northbury' in x else 0)
-```
-
-```python
-data=data.drop(columns='Role').merge(pd.get_dummies(data['Role'],prefix='Role').iloc[:,:-1],on=data.index, left_index=True)
-data.drop(columns='key_0',inplace=True)
-test_data=test_data.drop(columns='Role').merge(pd.get_dummies(test_data['Role'],prefix='Role').iloc[:,:-1],on=test_data.index, left_index=True)
-test_data.drop(columns='key_0',inplace=True)
-```
-
-```python
-data_encoded=data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
-```
-
-```python
-test_data_encoded=test_data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
-```
-
-```python
-target=data_encoded['Income']
-data_encoded.drop(columns='Income',inplace=True)
+variable_encoder.fit_transform(data).columns
 ```
 
 ## Model with Encoded Vars
 
 ```python
-X_train, X_val, y_train, y_val = train_test_split(data_encoded,
-                                                  target,
-                                                  test_size=0.25,
-                                                  stratify=target,
-                                                  random_state=35)
-```
+variable_encoding_pipeline = Pipeline([
+    ('Variable Encoding', variable_encoder),
+    ('Metric Features', get_metric_features)
+])
 
-```python
-df_model=batch_model_update(df_model,'Encoded Vars F1 Score')
+df_model = batch_model_update(data_steps=variable_encoding_pipeline,
+                   model_steps=[],
+                   model_df=df_model,
+                   score_name='Variable Encoding')
 df_model
 ```
 
@@ -711,26 +723,24 @@ evaluate(randForest)
 ```
 
 ```python
-export_results(randForest,3,test_data_encoded)
+# export_results(randForest,3,test_data_encoded)
 ```
 
 ### Encoded Vars no outliers
 
 ```python
-data_encoded_out=data_encoded[filters1].copy()
-target_no_out=target.loc[data_encoded_out.index]
+encoded_no_out_pipeline = Pipeline([
+    ('Remove Outliers', outlier_filter_transformer),
+    ('Encode Variables', variable_encoder),
+    ('Get Metric Features', get_metric_features)
+])
 ```
 
 ```python
-X_train, X_val, y_train, y_val = train_test_split(data_encoded_out,
-                                                  target_no_out,
-                                                  test_size=0.25,
-                                                  stratify=target_no_out,
-                                                  random_state=35)
-```
-
-```python
-df_model=batch_model_update(df_model,'Encoded Vars no Outliers F1 Score')
+df_model = batch_model_update(data_steps = encoded_no_out_pipeline,
+                   model_steps = [],
+                   model_df = df_model,
+                   score_name = 'No Outliers Encoded')
 df_model
 ```
 
@@ -743,71 +753,64 @@ df_model
 * gender (from the title that comes before the name) 
 
 ```python
-data['Age'] = data['Birthday'].apply(lambda x: datetime.strptime(x[-4:], "%Y").date()).astype('datetime64[ns]')
-data['Age'] = data['Age'].apply(lambda x: 2048 - x.year)
+def calculate_age(df):
+    df = df.copy()
+    df['Age'] = df['Birthday'].apply(lambda x: datetime.strptime(x[-4:], "%Y").date()).astype('datetime64[ns]')
+    df['Age'] = df['Age'].apply(lambda x: 2048 - x.year)
+    return df.drop(columns='Birthday')
+
+age_transformer = FunctionTransformer(calculate_age)
 ```
 
 ```python
-test_data['Age'] = test_data['Birthday'].apply(lambda x: datetime.strptime(x[-4:], "%Y").date()).astype('datetime64[ns]')
-test_data['Age'] = test_data['Age'].apply(lambda x: 2048 - x.year)
+def calculate_edu_per_age(df):
+    df = df.copy()
+    df['Education per Age'] = df['Years of Education'] / df['Age']
+    return df
+
+edu_per_age_transformer = FunctionTransformer(calculate_edu_per_age)
 ```
 
 ```python
-data['Education per Age'] = data['Years of Education'] / data['Age']
+def calculate_gender(df):
+    df = df.copy()
+    df['is_Male']= df['Name'].apply(lambda x: 1 if x.split(' ')[0]=='Mr.' else 0)
+    return df.drop(columns='Name')
+
+gender_transformer = FunctionTransformer(calculate_gender)
 ```
 
 ```python
-test_data['Education per Age'] = test_data['Years of Education'] / test_data['Age']
+def calculate_group(df):
+    df = df.copy()
+    df['is_group_a'] = df['Ticket Price'] + df['Money Received']
+    df['is_group_a'] = df['is_group_a'].apply(lambda x: 1 if x == 0 else 0)
+    df['is_group_b'] = df['Money Received'].apply(lambda x: 1 if x > 0 else 0)
+    df['is_group_c'] = df['Ticket Price'].apply(lambda x: 1 if x > 0 else 0)
+    return df
+
+group_transformer = FunctionTransformer(calculate_group)
 ```
 
 ```python
-data['is_Male']= data['Name'].apply(lambda x: 1 if x.split(' ')[0]=='Mr.' else 0)
-```
+variable_transformer = Pipeline([
+    ('Variable Encoding', variable_encoder),
+    ('Age', age_transformer),
+    ('Education Per Age', edu_per_age_transformer),
+    ('Gender', gender_transformer),
+    ('Groups', group_transformer)
+])
 
-```python
-test_data['is_Male']= test_data['Name'].apply(lambda x: 1 if x.split(' ')[0]=='Mr.' else 0)
-```
-
-```python
-data['is_group_a'] = data['Ticket Price'] + data['Money Received']
-data['is_group_a'] = data['is_group_a'].apply(lambda x: 1 if x == 0 else 0)
-data['is_group_b'] = data['Money Received'].apply(lambda x: 1 if x > 0 else 0)
-data['is_group_c'] = data['Ticket Price'].apply(lambda x: 1 if x > 0 else 0)
-data[['is_group_a', 'is_group_b', 'is_group_c']]
-```
-
-```python
-test_data['is_group_a'] = test_data['Ticket Price'] + test_data['Money Received']
-test_data['is_group_a'] = test_data['is_group_a'].apply(lambda x: 1 if x == 0 else 0)
-test_data['is_group_b'] = test_data['Money Received'].apply(lambda x: 1 if x > 0 else 0)
-test_data['is_group_c'] = test_data['Ticket Price'].apply(lambda x: 1 if x > 0 else 0)
-```
-
-```python
-data_transformed=data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
-```
-
-```python
-test_transformed=test_data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
-```
-
-```python
-target_transformed=data_transformed['Income']
-data_transformed=data_transformed.drop(columns='Income')
+variable_transformer.fit_transform(data).columns
 ```
 
 ### Model with new Transformed Variables
 
 ```python
-X_train, X_val, y_train, y_val = train_test_split(data_transformed,
-                                                  target_transformed,
-                                                  test_size=0.25,
-                                                  stratify=target_transformed,
-                                                  random_state=35)
-```
-
-```python
-df_model=batch_model_update(df_model,'Transformed Vars F1 Score')
+df_model = batch_model_update(data_steps = variable_transformer,
+                             model_steps = [],
+                             model_df = df_model,
+                             score_name = 'Transformed Variables')
 df_model
 ```
 
@@ -818,24 +821,23 @@ evaluate(randForest)
 ```
 
 ```python
-export_results(randForest,5,test_transformed)
+# export_results(randForest,5,test_transformed)
 ```
 
 ## Model with Transformed Vars with no Outliers
 
 ```python
-data_transformed_no_out=data_transformed[filters1]
-target_transformed_no_out=data.loc[data_transformed_no_out.index]['Income']
-
-X_train, X_val, y_train, y_val = train_test_split(data_transformed_no_out,
-                                                  target_transformed_no_out,
-                                                  test_size=0.25,
-                                                  stratify=target_transformed_no_out,
-                                                  random_state=35)
+transformed_no_out_pipeline = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Outlier Removal', outlier_filter_transformer)
+])
 ```
 
 ```python
-df_model=batch_model_update(df_model,'Transformed Vars No Outliers F1 Score')
+df_model = batch_model_update(data_steps=transformed_no_out_pipeline,
+                              model_steps=[],
+                              model_df=df_model,
+                              score_name='Transformed Variables No Outliers')
 df_model
 ```
 
@@ -1017,7 +1019,7 @@ export_results(var_pipe,7,test_t_uncorr)
 var_pipe=Pipeline([ 
     ('Standardization', MinMaxScaler()),
     ('Feature Selection', RFECV(estimator=SVC(kernel='linear'),step=1,cv=StratifiedKFold(2), scoring='f1_micro')),
-    ('Classifier', RandomForestClassifier(max_depth = 10, random_state = 0))
+    ('Classifier', AdaBoostClassifier(n_estimators=100, random_state = 0))
 ])
     
 var_pipe.fit(X_train,y_train)
