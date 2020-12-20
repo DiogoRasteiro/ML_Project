@@ -56,7 +56,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.svm import SVC
 
 
-from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
 from sklearn import tree
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, f1_score, recall_score, classification_report
 from sklearn.tree import export_graphviz
@@ -1088,7 +1088,7 @@ max_depths=range(1,30)
 f1_scores_val=[]
 f1_scores_train=[]
 for i in max_depths:    
-    randForest = RandomForestClassifier(max_depth=i, random_state=0)
+    randForest = RandomForestClassifier(max_depth=i, random_state=0,)
     randForest.fit(X_train, y_train)
     f1_scores_train.append(f1_score(y_train, randForest.predict(X_train), average='micro'))
     f1_scores_val.append(f1_evaluation(randForest))
@@ -1159,6 +1159,30 @@ NEstimator.plot(x = 'N Estimators', y = 'F1 Score Train', ax = ax)
 NEstimator.plot(x = 'N Estimators', y = 'F1 Score Validation', ax = ax)
 ```
 
+### Warm Start
+
+```python
+warmStart=[True, False]
+f1_scores_val=[]
+f1_scores_train=[]
+for start in warmStart:    
+    randForest = RandomForestClassifier(max_depth=11, warm_start=start)
+    randForest.fit(X_train, y_train)
+    f1_scores_train.append(f1_score(y_train, randForest.predict(X_train), average='micro'))
+    f1_scores_val.append(f1_evaluation(randForest))
+```
+
+```python
+start={'Warm Start': warmStart, 'F1 Score Train': f1_scores_train, 'F1 Score Validation': f1_scores_val}
+start=pd.DataFrame(start)
+start['diff']=start['F1 Score Train']-start['F1 Score Validation']
+start
+```
+
+```python
+
+```
+
 ## Decision Tree
 
 
@@ -1207,29 +1231,106 @@ evaluate(dt_gini)
 
 ## Multi Layer Perceptron
 
+
+### Activation
+
 ```python
-hidden_layer=range(1,30)
+activations=['relu','logistic','tanh']
 f1_scores_val=[]
 f1_scores_train=[]
-for i in max_depths:    
-    mlp = MLPClassifier()
+for funct in activations:    
+    mlp = MLPClassifier(activation=funct)
     mlp.fit(X_train, y_train)
-    f1_scores_train.append(f1_score(y_train, dt_gini.predict(X_train), average='micro'))
-    f1_scores_val.append(f1_evaluation(dt_gini))
+    f1_scores_train.append(f1_score(y_train, mlp.predict(X_train), average='micro'))
+    f1_scores_val.append(f1_evaluation(mlp))
 ```
 
 ```python
-depths={'Max Depth': max_depths, 'F1 Score Train': f1_scores_train, 'F1 Score Validation': f1_scores_val}
-depths=pd.DataFrame(depths)
-depths['diff']=depths['F1 Score Train']-depths['F1 Score Validation']
-depths
+Activation={'Function': activations, 'F1 Score Train': f1_scores_train, 'F1 Score Validation': f1_scores_val}
+Activation=pd.DataFrame(Activation)
+Activation['diff']=Activation['F1 Score Train']-Activation['F1 Score Validation']
+Activation
 ```
 
 ```python
 fig, ax = plt.subplots()
 
-depths.plot(x = 'Max Depth', y = 'F1 Score Train', ax = ax) 
-depths.plot(x = 'Max Depth', y = 'F1 Score Validation', ax = ax)
+Activation.plot(x = 'Function', y = 'F1 Score Train', ax = ax) 
+Activation.plot(x = 'Function', y = 'F1 Score Validation', ax = ax)
+```
+
+### Hidden Layer Size
+
+```python
+hidden_layers=[(30,), (10,10,10), (20,10),(30,10,10), (100,)]
+hidden=[]
+func=[]
+activations=['relu','logistic','tanh']
+
+f1_scores_val=[]
+f1_scores_train=[]
+for funct in activations:
+    for layers in hidden_layers:
+        mlp = MLPClassifier(activation=funct, hidden_layer_sizes=layers)
+        mlp.fit(X_train, y_train)
+        f1_scores_train.append(f1_score(y_train, mlp.predict(X_train), average='micro'))
+        f1_scores_val.append(f1_evaluation(mlp))
+        hidden.append(layers)
+        func.append(funct)
+```
+
+```python
+Activation={'Function': func,'Hidden Layers': hidden, 'F1 Score Train': f1_scores_train, 'F1 Score Validation': f1_scores_val}
+Activation=pd.DataFrame(Activation)
+Activation['diff']=Activation['F1 Score Train']-Activation['F1 Score Validation']
+Activation
+```
+
+```python
+fig, ax = plt.subplots()
+
+Activation.plot(x = 'Hidden Layers', y = 'F1 Score Train', ax = ax) 
+Activation.plot(x = 'Hidden Layers', y = 'F1 Score Validation', ax = ax)
+```
+
+### Learning Rate, Solver, Learning Rate init
+
+```python
+parameter_space = {
+    'solver': ['sgd', 'adam'],
+    'learning_rate_init': list(np.linspace(0.00001,0.1,5)),
+    'learning_rate': ['constant','adaptive']
+}
+```
+
+```python
+mlp = MLPClassifier(activation='relu', hidden_layer_sizes=(30,))
+
+clf = GridSearchCV(mlp, parameter_space, estimator=f1_score)
+clf.fit(X_train, y_train)
+```
+
+```python
+clf.best_params_
+```
+
+```python
+clf.best_score_
+```
+
+```python
+pd.DataFrame(clf.cv_results_)
+```
+
+### Solver lbfgs
+
+```python
+mlp = MLPClassifier(activation='relu', hidden_layer_sizes=(30,), solver='lbfgs')
+mlp.fit(X_train, y_train)
+```
+
+```python
+evaluate(mlp)
 ```
 
 ```python
