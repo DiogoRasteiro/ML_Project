@@ -32,10 +32,11 @@ jupyter:
 * PCA
 
 ```python
-# Libraries for manipulating and displaying data
+# Libraries for manipulating and displaying data import pandas as pd import numpy as np import seaborn as sns import matplotlib.pyplot as plt from pandas_profiling import ProfileReport  # Utility Libraries from datetime import datetime  # Model Libraries from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
 import pandas as pd
 import numpy as np
 import seaborn as sns
+sns.set_theme()
 import matplotlib.pyplot as plt
 from pandas_profiling import ProfileReport
 
@@ -44,6 +45,7 @@ from datetime import datetime
 
 # Model Libraries
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
+from sklearn.experimental import enable_hist_gradient_boosting
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LogisticRegression
@@ -51,22 +53,21 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.pipeline import Pipeline
-from sklearn.ensemble import AdaBoostClassifier
-from sklearn.feature_selection import VarianceThreshold, RFECV
-from sklearn.preprocessing import MinMaxScaler, FunctionTransformer
+from sklearn.ensemble import AdaBoostClassifier, GradientBoostingClassifier, HistGradientBoostingClassifier
+from sklearn.feature_selection import VarianceThreshold, RFE, RFECV, SelectFromModel
+from sklearn.preprocessing import MinMaxScaler, FunctionTransformer, RobustScaler, StandardScaler
+from sklearn.decomposition import PCA
 from sklearn.svm import SVC
 
 
 from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
 from sklearn import tree
+from sklearn.metrics import make_scorer
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, f1_score, recall_score, classification_report
 from sklearn.tree import export_graphviz
 import graphviz
 import pydotplus
 
-import warnings
-warnings.filterwarnings('ignore')
-warnings.simplefilter('ignore')
 ```
 
 ## Importing Data
@@ -116,7 +117,7 @@ The ProfileReport shows us the basic statistics and the general distribution for
 
 ```python
 # Generate a profile
-def generate_report(path):
+def generate_report(data, path):
     profile = ProfileReport(
         data, 
         title='Newland Citizens Report',
@@ -132,7 +133,7 @@ def generate_report(path):
 
 
 # Export this profile to a file
-# generate_report('reports/citizen_profiling.html')
+# generate_report(data, 'reports/citizen_profiling.html')
 ```
 
 ## Missing Values
@@ -207,35 +208,16 @@ data[data['Role'].isna()]
 ```
 
 ```python
-data['Role'].fillna('Unemployed', inplace=True)
-```
-
-```python
-data['Employment Sector'].fillna('Unemployed', inplace=True)
-```
-
-```python
-data['Employment Sector']=data['Employment Sector'].apply(lambda x: 'Unemployed' if x=='Never Worked' else x)
-```
-
-```python
-test_data['Role'].fillna('Unemployed', inplace=True)
-test_data['Employment Sector'].fillna('Unemployed', inplace=True)
-test_data['Employment Sector'] = test_data['Employment Sector'].apply(
-    lambda x: 'Unemployed' if x == 'Never Worked' else x)
-test_data['Base Area'].fillna(test_data['Base Area'].mode()[0], inplace=True)
-```
-
-```python
-data.loc[:,col_with_missing].isnull().mean()
-```
-
-```python
-data['Base Area'].fillna(data['Base Area'].mode()[0],inplace=True)
-```
-
-```python
-test_data.loc[:,col_with_missing].isnull().mean()
+def fill_missing_values(df):
+    df = df.copy()
+    df['Role'].fillna('Unemployed', inplace=True)
+    df['Employment Sector'].fillna('Unemployed', inplace=True)
+    df['Employment Sector'] = df['Employment Sector'].apply(lambda x: 'Unemployed' if x == 'Never Worked' else x)
+    df['Base Area'].fillna(df['Base Area'].mode()[0], inplace=True)
+    return df
+    
+fill_na_transformer = FunctionTransformer(fill_missing_values)
+fill_na_transformer.fit_transform(data).isna().mean()
 ```
 
 # Modelling
@@ -268,9 +250,9 @@ def metrics(model, X_train, X_val, y_train, y_val):
     print(classification_report(y_val, pred_val))
     # print(confusion_matrix(y_val, pred_val))
     
-def evaluate(model):
+def evaluate(model, X_train, X_val, y_train, y_val):
     metrics(model, X_train, X_val, y_train, y_val)
-    f1_micro = f1_evaluation(model)
+    f1_micro = f1_evaluation(X_val, y_val, model)
     print(f'The Micro Average of the F1 Score is : {f1_micro}')
     
 def f1_evaluation(X_val, y_val, model):
@@ -280,8 +262,11 @@ def f1_evaluation(X_val, y_val, model):
 ```python
 def batch_model_creation():
     model_df = pd.DataFrame(columns=['Model_Name', 'Initial'])
-                            
-    input_data = get_metric_features.fit_transform(data)
+
+    input_data = Pipeline([
+        ('Fill Missing Values', fill_na_transformer),
+        ('Get the Metric Features', get_metric_features)
+    ]).fit_transform(data)
     target = input_data['Income']
     X = input_data.drop(columns='Income')
 
@@ -293,22 +278,34 @@ def batch_model_creation():
     # Random Forest
     randForest = RandomForestClassifier(max_depth=10, random_state=0)
     randForest.fit(X_train, y_train)
-    model_df.loc[0] = ['Random Forest', f1_evaluation(X_val, y_val, randForest)]
+    model_df.loc[0] = [
+        'Random Forest',
+        f1_evaluation(X_val, y_val, randForest)
+    ]
 
     #Decision Tree
     dt_gini = DecisionTreeClassifier(max_depth=10, random_state=0)
     dt_gini.fit(X_train, y_train)
-    model_df.loc[1] = ['Decision Tree GINI', f1_evaluation(X_val, y_val, dt_gini)]
+    model_df.loc[1] = [
+        'Decision Tree GINI',
+        f1_evaluation(X_val, y_val, dt_gini)
+    ]
 
     # Multi-layer Perceptron
     mlp = MLPClassifier(random_state=0)
     mlp.fit(X_train, y_train)
-    model_df.loc[2] = ['Multi-layer Perceptron', f1_evaluation(X_val, y_val, mlp)]
+    model_df.loc[2] = [
+        'Multi-layer Perceptron',
+        f1_evaluation(X_val, y_val, mlp)
+    ]
 
     # Logistic Regression
     log_model = LogisticRegression(random_state=0)
     log_model.fit(X_train, y_train)
-    model_df.loc[3] = ['Logistic Regression', f1_evaluation(X_val, y_val, log_model)]
+    model_df.loc[3] = [
+        'Logistic Regression',
+        f1_evaluation(X_val, y_val, log_model)
+    ]
 
     # K-Nearest Neighbors
     knn = KNeighborsClassifier()
@@ -319,19 +316,26 @@ def batch_model_creation():
     nb_model = GaussianNB()
     nb_model.fit(X_train, y_train)
     model_df.loc[5] = ['GaussianNB', f1_evaluation(X_val, y_val, nb_model)]
-    
+
     # AdaBoost
     ada_model = AdaBoostClassifier(n_estimators=100, random_state=0)
     ada_model.fit(X_train, y_train)
     model_df.loc[6] = ['AdaBoost', f1_evaluation(X_val, y_val, ada_model)]
-    
+
+    # Gradiant Boosting
+    grad_model = GradientBoostingClassifier(random_state=0)
+    grad_model.fit(X_train, y_train)
+    model_df.loc[7] = [
+        'GradientBoost',
+        f1_evaluation(X_val, y_val, grad_model)
+    ]
 
     return model_df
 
 
 def batch_model_update(data_steps, model_steps, model_df, score_name):
     new_scores = []
-    
+
     input_data = data_steps.fit_transform(data)
 
     target = input_data['Income']
@@ -348,7 +352,8 @@ def batch_model_update(data_steps, model_steps, model_df, score_name):
                             RandomForestClassifier(max_depth=10,
                                                    random_state=0))])
     for i, s in enumerate(model_steps):
-        randForest.steps.insert(i, s)
+        randForest.steps.insert(i, (str(i), s))
+    print(randForest.steps)
     randForest.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, randForest))
 
@@ -357,45 +362,54 @@ def batch_model_update(data_steps, model_steps, model_df, score_name):
                          DecisionTreeClassifier(max_depth=10,
                                                 random_state=0))])
     for i, s in enumerate(model_steps):
-        dt_gini.steps.insert(i, s)
+        dt_gini.steps.insert(i, (str(i), s))
     dt_gini.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, dt_gini))
 
     # Multi-layer Perceptron
     mlp = Pipeline([('Classifier', MLPClassifier(random_state=0))])
     for i, s in enumerate(model_steps):
-        mlp.steps.insert(i, s)
+        mlp.steps.insert(i, (str(i), s))
     mlp.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, mlp))
 
     # Logistic Regression
     log_model = Pipeline([('Classifier', LogisticRegression(random_state=0))])
     for i, s in enumerate(model_steps):
-        log_model.steps.insert(i, s)
+        log_model.steps.insert(i, (str(i), s))
     log_model.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, log_model))
 
     # K-Nearest Neighbors
     knn = Pipeline([('Classifier', KNeighborsClassifier())])
     for i, s in enumerate(model_steps):
-        knn.steps.insert(i, s)
+        knn.steps.insert(i, (str(i), s))
     knn.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, knn))
 
     # Gaussian Model
     nb_model = Pipeline([('Classifier', GaussianNB())])
     for i, s in enumerate(model_steps):
-        nb_model.steps.insert(i, s)
+        nb_model.steps.insert(i, (str(i), s))
     nb_model.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, nb_model))
-    
+
     # AdaBoost
-    ada_model = Pipeline([('Classifier', AdaBoostClassifier(n_estimators=100, random_state=0))])
+    ada_model = Pipeline([('Classifier',
+                           AdaBoostClassifier(n_estimators=100,
+                                              random_state=0))])
     for i, s in enumerate(model_steps):
-        ada_model.steps.insert(i, s)
+        ada_model.steps.insert(i, (str(i), s))
     ada_model.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, ada_model))
-    
+
+    # Gradient Boosting
+    grad_model = Pipeline([('Classifier',
+                            GradientBoostingClassifier(random_state=0))])
+    for i, s in enumerate(model_steps):
+        grad_model.steps.insert(i, (str(i), s))
+    grad_model.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(X_val, y_val, grad_model))
 
     new_scores = pd.Series(data=new_scores,
                            name=score_name,
@@ -417,12 +431,6 @@ def export_results(model, nversion,test_data):
     results.index.rename('CITIZEN_ID',inplace=True)
     results.rename(columns={0:'Income'},inplace=True)
     results.to_csv(path_or_buf='subs/Group48_Version'+str(nversion)+'.csv')
-```
-
-```python
-randForest = RandomForestClassifier(max_depth=10, random_state=0)
-randForest.fit(X_train, y_train)
-#export_results(randForest,1,X_test_metrics)
 ```
 
 ```python
@@ -585,6 +593,7 @@ outlier_filter_transformer = FunctionTransformer(lambda x: x[filters1])
 
 ```python
 no_outliers_pipeline = Pipeline([
+    ('Fill Missing Values', fill_na_transformer),
     ('Outlier Remove', outlier_filter_transformer),
     ('Get Metric Features', get_metric_features)
 ])
@@ -616,13 +625,27 @@ is_married_transformer = FunctionTransformer(is_married)
 ```
 
 ```python
+def Sectorsector(string):
+    if ' - ' in string:
+        return string.split(' - ')[1]
+    elif ' (' in string:
+        return string.split('(')[1][:-1]
+    else:
+        return string
+
 def sector_binning(df):
     df = df.copy()
     df['Private Sector'] = df['Employment Sector'].apply(lambda x: 1 if 'Private' in x else 0)
     df['Public Sector'] = df['Employment Sector'].apply(lambda x: 1 if 'Public' in x else 0)
     df['Self Employed'] = df['Employment Sector'].apply(lambda x: 1 if 'Self' in x else 0)
     df['Unemployed'] = df['Employment Sector'].apply(lambda x: 1 if 'Unemployed' in x else 0)
-    return df.drop(columns=['Employment Sector'])
+    
+    df['Sector'] = df['Employment Sector'].apply(lambda x: Sectorsector(x))
+    df = df.drop(columns='Sector').merge(pd.get_dummies(df['Sector'], prefix='Sector').iloc[:, :-1],
+                                                       on=df.index,
+                                                       left_index=True)
+    
+    return df.drop(columns=['Employment Sector', 'key_0'])
 
 sector_binning_transformer = FunctionTransformer(sector_binning)
 ```
@@ -690,6 +713,7 @@ role_enconder = FunctionTransformer(role_dummies)
 
 ```python
 variable_encoder = Pipeline([
+    ('Fill Missing Values', fill_na_transformer),
     ('is_married', is_married_transformer),
     ('Sector', sector_binning_transformer),
     ('Professional School', is_professional_transformer),
@@ -718,12 +742,6 @@ df_model
 ```
 
 ```python
-randForest = RandomForestClassifier(max_depth=10, random_state=0)
-randForest.fit(X_train, y_train)
-evaluate(randForest)
-```
-
-```python
 # export_results(randForest,3,test_data_encoded)
 ```
 
@@ -731,7 +749,6 @@ evaluate(randForest)
 
 ```python
 encoded_no_out_pipeline = Pipeline([
-    ('Remove Outliers', outlier_filter_transformer),
     ('Encode Variables', variable_encoder),
     ('Get Metric Features', get_metric_features)
 ])
@@ -794,12 +811,27 @@ group_transformer = FunctionTransformer(calculate_group)
 ```
 
 ```python
+def money_ratios(df):
+    df = df.copy()
+    df['Ticket Price per Age'] = df['Ticket Price'] / df['Age']
+    df['Money Received per Age'] = df['Money Received'] / df['Age']
+    df['Ticket Price per YoE'] = df['Ticket Price'] / df['Years of Education']
+    df['Money Received per YoE'] = df['Money Received'] / df['Years of Education']
+    df['Ticket Price per WHpW'] = df['Ticket Price'] / df['Working Hours per week']
+    df['Money Received per WHpW'] = df['Money Received'] / df['Working Hours per week']
+    return df
+
+money_ratios_transformer = FunctionTransformer(money_ratios)
+```
+
+```python
 variable_transformer = Pipeline([
     ('Variable Encoding', variable_encoder),
     ('Age', age_transformer),
     ('Education Per Age', edu_per_age_transformer),
     ('Gender', gender_transformer),
-    ('Groups', group_transformer)
+    ('Groups', group_transformer),
+    ('Money Rations', money_ratios_transformer)
 ])
 
 variable_transformer.fit_transform(data).columns
@@ -813,12 +845,6 @@ df_model = batch_model_update(data_steps = variable_transformer,
                              model_df = df_model,
                              score_name = 'Transformed Variables')
 df_model
-```
-
-```python
-randForest = RandomForestClassifier(max_depth=10, random_state=0)
-randForest.fit(X_train, y_train)
-evaluate(randForest)
 ```
 
 ```python
@@ -843,18 +869,24 @@ df_model
 ```
 
 ```python
-randForest = RandomForestClassifier(max_depth=10, random_state=0)
-randForest.fit(X_train, y_train)
-evaluate(randForest)
+df_model.drop(columns=['No Outliers Encoded', 'Transformed Variables No Outliers'], inplace=True)
 ```
 
 ## Correlation Analysis
 
 ```python
+data_transformed_pipe = Pipeline([
+    ('Variable Transformation', variable_transformer)
+])
+
+data_transformed = data_transformed_pipe.fit_transform(data)
+```
+
+```python
 # Prepare figure
 fig = plt.figure(figsize=(20, 20))
 # Obtain correlation matrix. Round the values to 2 decimal cases. Use the DataFrame corr() and round() method.
-corr = np.round(data.corr(method="pearson"), decimals=2)
+corr = np.round(data_transformed.corr(method="pearson"), decimals=2)
 # Build annotation matrix (values above |0.5| will appear annotated in the plot)
 mask_annot = np.absolute(corr.values) >= 0.5
 annot = np.where(mask_annot, corr.values, np.full(corr.shape,"")) # Try to understand what this np.where() does
@@ -868,205 +900,125 @@ plt.show()
 ```
 
 ```python
-data.corr(method='spearman')['Income'].abs().sort_values(ascending=False)
+remove_corr = FunctionTransformer(lambda x: x.drop(columns=['is_group_c', 'is_Married', 'Continent_Africa']))
 ```
 
 ```python
-##Come back to the previous Step
-data_transformed=data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
-test_transformed=test_data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
+data_transformed = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr),
+]).fit_transform(data)
 
-target_transformed= data_transformed['Income']
-data_transformed.drop(columns='Income', inplace=True)
+target = data_transformed['Income']
+X = data_transformed.drop(columns='Income')
 
-```
-
-```python
-data_t_uncorr=data_transformed.drop(columns=['is_group_c', 'is_Married'])
-```
-
-```python
-X_train, X_val, y_train, y_val = train_test_split(data_t_uncorr,
-                                                  target_transformed,
+X_train, X_val, y_train, y_val = train_test_split(X,
+                                                  target,
                                                   test_size=0.25,
-                                                  stratify=target_transformed,
+                                                  stratify=target,
                                                   random_state=35)
+test_data_transformed = Pipeline([
+    ('Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+]).fit_transform(test_data)
+
+f1_scorer = make_scorer(f1_score, average='micro')
 ```
 
 ```python
-df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated F1 Score')
-df_model
-```
-
-## Data Standartization
-
-```python
-scaler=MinMaxScaler()
-data_t_scaled=pd.DataFrame(scaler.fit_transform(data_t_uncorr), index=data_t_uncorr.index, columns=data_t_uncorr.columns)
-data_t_scaled
+generate_report(data_transformed, 'reports/citizen_profiling_after_transformation')
 ```
 
 ```python
-X_train, X_val, y_train, y_val = train_test_split(data_t_scaled,
-                                                  target_transformed,
-                                                  test_size=0.25,
-                                                  stratify=target_transformed,
-                                                  random_state=35)
-```
-
-```python
-df_model=batch_model_update(df_model,'Transformed Vars, Uncorrelated Scaled F1 Score')
-df_model
-```
-
-```python
-scaler=MinMaxScaler()
-test_t_scaled=pd.DataFrame(scaler.fit_transform(test_transformed), index=test_transformed.index, columns=test_transformed.columns)
-test_t_scaled
-```
-
-```python
-#export_results(randForest,6,test_t_scaled)
-```
-
-## Data Standartization no Outliers
-
-```python
-scaler=MinMaxScaler()
-data_t_scaled_out=pd.DataFrame(scaler.fit_transform(data_transformed_no_out), index=data_transformed_no_out.index, columns=data_transformed_no_out.columns)
-data_t_scaled_out
-```
-
-```python
-X_train, X_val, y_train, y_val = train_test_split(data_t_scaled_out,
-                                                  target_transformed_no_out,
-                                                  test_size=0.25,
-                                                  stratify=target_transformed_no_out,
-                                                  random_state=35)
-```
-
-```python
-df_model=batch_model_update(df_model,'Transformed Vars Scaled No Out F1 Score')
-df_model
-```
-
-## Feature Selection
-
-
-#### Standardization First, VarianceThreshold After
-
-```python
-X_train, X_val, y_train, y_val = train_test_split(data_t_uncorr,
-                                                  target_transformed,
-                                                  test_size=0.25,
-                                                  stratify=target_transformed,
-                                                  random_state=35)
-```
-
-```python
-var_pipe=Pipeline([
-    ('Standardization', MinMaxScaler()),
-    ('Feature Selection', VarianceThreshold(threshold = .8 * (1 - .8))),
-    ('Classifier', RandomForestClassifier(max_depth = 10, random_state = 0))
+mlp = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', MLPClassifier(random_state=0))
 ])
+parameters = {
+    'Classifier__hidden_layer_sizes' : [(30, 20), (30,20, 10)],
+    'Classifier__activation' : [ 'tanh'],
+    'Classifier__learning_rate' : ['adaptive'],
+    'Classifier__max_iter' : [100, 200],
+    'Classifier__early_stopping' : [True]
+}
+
+search = GridSearchCV(mlp, parameters, estimator=f1_score, verbose=10)
+search.fit(X, target)
+```
+
+```python
+GradBoost = Pipeline([('Scaler', MinMaxScaler()),
+                      ('Classifier',GradientBoostingClassifier(random_state=92,
+                                                              n_iter_no_change=200,
+                                                              learning_rate=0.1,
+                                                              n_estimators=200,
+                                                              max_depth=5,
+                                                              max_features='auto',
+                                                              validation_fraction=0.2,
+                                                              tol=0.01,
+                                                              min_impurity_decrease=0.01,
+                                                              min_samples_split=3))
+                     ])
+
+parameters = {
+    'Scaler' : [MinMaxScaler()]
+    'Classifier__max_features' : ['sqrt', 'auto'],
+    'Classifier__learning_rate' : [0.5, 0.2, 0.1],
+    'Classifier'
     
-var_pipe.fit(X_train,y_train)
+}
+
+search = GridSearchCV(GradBoost, parameters, estimator=f1_score, verbose=10)
+search.fit(X, target)
 ```
 
 ```python
-evaluate(var_pipe)
-```
+optimized_randForest = RandomForestClassifier(random_state=0,
+                                             bootstrap=True,
+                                             max_depth=20,
+                                             max_features='sqrt',
+                                             min_impurity_decrease=0,
+                                             n_estimators=100,
+                                             warm_start=True)
 
-```python
-data_transformed.iloc[:,var_pipe.named_steps['Feature Selection'].get_support(indices=True)]
-```
-
-#### VarianceThreshold First, Standardization After
-
-```python
-var_pipe=Pipeline([
-    ('Feature Selection', VarianceThreshold(threshold = .8 * (1 - .8))),
-    ('Standardization', MinMaxScaler()),
-    ('Classifier', RandomForestClassifier(max_depth = 10, random_state = 0))
+grid_pipeline = Pipeline([
+    ('Classifier', AdaBoostClassifier(random_state=0))
 ])
-    
-var_pipe.fit(X_train,y_train)
+
+parameters = {
+    'Classifier__n_estimators' : [50],
+    'Classifier__base_estimator' : [optimized_randForest],
+    'Classifier__learning_rate' : [0.1]
+}
+
+search = GridSearchCV(grid_pipeline, parameters, estimator = f1_score, verbose=10)
+search.fit(X, target)
 ```
 
 ```python
-evaluate(var_pipe)
+search.best_score_
 ```
 
 ```python
-df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated Pipe VarThresh F1 Score')
-df_model
+search.best_params_
 ```
 
 ```python
-data_transformed.iloc[:,var_pipe.named_steps['Feature Selection'].get_support(indices=True)]
+evaluate(search.best_estimator_, X_train, X_val, y_train, y_val)
 ```
 
 ```python
-test_t_uncorr=test_transformed.drop(columns=['is_group_c','is_Married'])
-```
-
-```python
-#export_results(var_pipe,7,test_t_uncorr)
-```
-
-#### Std first, RFE after
-
-```python
-var_pipe=Pipeline([ 
-    ('Standardization', MinMaxScaler()),
-    ('Feature Selection', RFECV(estimator=SVC(kernel='linear'),step=1,cv=StratifiedKFold(2), scoring='f1_micro')),
-    ('Classifier', AdaBoostClassifier(n_estimators=100, random_state = 0))
-])
-    
-var_pipe.fit(X_train,y_train)
-```
-
-```python
-evaluate(var_pipe)
-```
-
-```python
-df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated Pipe STD RFE F1 Score')
-df_model
-```
-
-```python
-data_transformed.iloc[:,var_pipe.named_steps['Feature Selection'].get_support(indices=True)]
-```
-
-#### Tree Based Feature Selection
-
-```python
-var_pipe=Pipeline([ 
-    ('Impurity Based Feature Selection',SelectFromModel(ExtraTreesClassifier(n_estimators=10))),
-    ('Classifier', RandomForestClassifier(max_depth = 10, random_state = 0))
-])
-    
-var_pipe.fit(X_train,y_train)
-```
-
-```python
-evaluate(var_pipe)
-```
-
-```python
-df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated Pipe Tree Based F1 Score')
-df_model
-```
-
-```python
-data_transformed.iloc[:,var_pipe.named_steps['Impurity Based Feature Selection'].get_support(indices=True)]
+test_data_transformed = Pipeline([
+    ('Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+]).fit_transform(test_data)
+export_results(search.best_estimator_, 17, test_data_transformed)
 ```
 
 ## Feature Importance
 
 ```python
-feature_importance=pd.DataFrame([test_transformed.columns,randForest.feature_importances_])
+feature_importance=pd.DataFrame([data_transformed.drop(columns='Income').columns,ada_model.feature_importances_])
 feature_importance=feature_importance.T
 feature_importance.rename(columns={0:'Feature',1:'Importance'},inplace=True)
 feature_importance
@@ -1077,13 +1029,103 @@ sns.barplot(x='Feature',y='Importance',data=feature_importance, order=feature_im
 ax_ticks=plt.xticks(rotation='vertical')
 ```
 
+```python
+remove_unimportant = FunctionTransformer(lambda x: x.drop(columns=['Role_Household Services', 'Role_Army']))
+```
+
+```python
+# data_transformed = Pipeline([
+#    ('Variable Transformation', variable_transformer),
+#    ('Correlation Removal', remove_corr),
+#    ('Remove Unimportant', remove_unimportant)
+# ]).fit_transform(data)
+
+target = data_transformed['Income']
+X = data_transformed.drop(columns='Income')
+
+X_train, X_val, y_train, y_val = train_test_split(X,
+                                                  target,
+                                                  test_size=0.25,
+                                                  stratify=target,
+                                                  random_state=35)
+```
+
+```python
+ada_model = AdaBoostClassifier(base_estimator=RandomForestClassifier(max_depth=5, n_estimators = 10, random_state=0),
+                              n_estimators=50,
+                              random_state=0)
+ada_model.fit(X_train, y_train)
+
+evaluate(ada_model, X_train, X_val, y_train, y_val)
+```
+
+```python
+test_data_transformed = Pipeline([
+    ('Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+]).fit_transform(test_data)
+export_results(ada_model, 12, test_data_transformed)
+```
+
+## Data Standartization
+
+```python
+data_pipeline = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+])
+
+model_pipeline = Pipeline([
+    ('Scaler', MinMaxScaler()),
+])
+
+df_model = batch_model_update(data_steps=data_pipeline,
+                              model_steps=model_pipeline,
+                              model_df=df_model,
+                              score_name='Scaled')
+df_model
+```
+
 # Fine Tuning
 
 
 ## Random Forest
 
 
-### Max Depth
+### Grid Search
+
+```python
+randForest = RandomForestClassifier()
+
+parameters = {
+    'n_estimators' : [50, 100, 200],
+    'max_depth' : [5, 9, 10, 11, 20],
+    'warm_start' : [True, False],
+    'max_features' : ['auto', 'sqrt', 'log2'],
+    'bootstrap' : [True, False],
+    'min_impurity_decrease' : [0, 0.01, 0.1, 0.2, 0.5]
+}
+
+search = GridSearchCV(randForest, parameters, estimator = f1_score)
+search.fit(X, target)
+```
+
+```python
+search.best_params_
+```
+
+```python
+model_pipeline = Pipeline([('Standardization', MinMaxScaler()),
+                           ('Classifier', RandomForestClassifier(bootstrap=True,
+                                                   max_depth=20,
+                                                   max_features='sqrt',
+                                                   min_impurity_decrease=0,
+                                                   n_estimators=200,
+                                                   warm_start=True))])
+
+model_pipeline.fit(X_train, y_train)
+evaluate(model_pipeline, X_train, X_val, y_train, y_val)
+```
 
 ```python
 max_depths=range(1,30)
@@ -1112,27 +1154,6 @@ depths.plot(x = 'Max Depth', y = 'F1 Score Validation', ax = ax)
 
 #### MaxDepth==9
 
-```python
-randForest = RandomForestClassifier(max_depth=9, random_state=0,)
-randForest.fit(X_train, y_train)
-evaluate(randForest)
-```
-
-```python
-#export_results(randForest,8,test_t_uncorr)
-```
-
-#### MaxDepth==11
-
-```python
-randForest = RandomForestClassifier(max_depth=11, random_state=0,)
-randForest.fit(X_train, y_train)
-evaluate(randForest)
-```
-
-```python
-#export_results(randForest,9,test_t_uncorr)
-```
 
 ### Number Estimators (Number of Trees)
 
@@ -1161,28 +1182,385 @@ NEstimator.plot(x = 'N Estimators', y = 'F1 Score Train', ax = ax)
 NEstimator.plot(x = 'N Estimators', y = 'F1 Score Validation', ax = ax)
 ```
 
-### Warm Start
+## Gradient Boosting
+
+
+### Feature Importance
 
 ```python
-warmStart=[True, False]
-f1_scores_val=[]
-f1_scores_train=[]
-for start in warmStart:    
-    randForest = RandomForestClassifier(max_depth=11, warm_start=start)
-    randForest.fit(X_train, y_train)
-    f1_scores_train.append(f1_score(y_train, randForest.predict(X_train), average='micro'))
-    f1_scores_val.append(f1_evaluation(randForest))
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             n_estimators=70,
+                                             learning_rate=0.2,
+                                             max_features=None,
+                                             subsample=0.8))
+])
+
+grad_boost.fit(X_train, y_train)
+evaluate(grad_boost, X_train, X_val, y_train, y_val)
+
+feature_importance=pd.DataFrame([data_transformed.drop(columns='Income').columns,grad_boost['Classifier'].feature_importances_])
+feature_importance=feature_importance.T
+feature_importance.rename(columns={0:'Feature',1:'Importance'},inplace=True)
+feature_importance = feature_importance[feature_importance['Importance'] > 0.001]
+
+##Feature Importance Graph
+plt.figure(figsize=(10,10))
+sns.barplot(x='Feature',y='Importance',data=feature_importance, order=feature_importance.sort_values('Importance', ascending=False).Feature)
+ax_ticks=plt.xticks(rotation='vertical')
+len(feature_importance)
 ```
 
 ```python
-start={'Warm Start': warmStart, 'F1 Score Train': f1_scores_train, 'F1 Score Validation': f1_scores_val}
-start=pd.DataFrame(start)
-start['diff']=start['F1 Score Train']-start['F1 Score Validation']
-start
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             n_estimators=70,
+                                             learning_rate=0.2,
+                                             max_features=32,
+                                             subsample=0.8))
+])
+
+grad_boost.fit(X_train, y_train)
+evaluate(grad_boost, X_train, X_val, y_train, y_val)
+```
+
+### Max_features
+
+```python
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             n_estimators=70,
+                                             learning_rate=0.2,
+                                             subsample=0.8))
+])
+
+parameters = {
+    'Classifier__max_features' : range(10, len(data_transformed.columns) + 1, 2)
+}
+
+search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
+                     verbose=10)
+search.fit(X_train, y_train)
 ```
 
 ```python
+search.best_params_, search.best_score_
+```
 
+### Max Depth
+
+```python
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             learning_rate=0.2,
+                                             max_features=30,
+                                             subsample=0.8))
+])
+
+f1_scorer = make_scorer(f1_score, average='micro')
+
+parameters = {
+    'Classifier__n_estimators' : range(200, 311, 20)
+}
+
+search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
+                     verbose=10)
+search.fit(X_train, y_train)
+```
+
+```python
+search.best_params_, search.best_score_
+```
+
+```python
+search_n_est = pd.DataFrame(search.cv_results_)[['param_Classifier__n_estimators', 'mean_test_score']]
+```
+
+### Max_depth and min_samples_split
+
+```python
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             n_estimators=220,
+                                             learning_rate=0.2,
+                                             max_features=30,
+                                             subsample=0.8))
+])
+
+parameters = {
+    'Classifier__max_depth' : range(5,16,2),
+    'Classifier__min_samples_split' : range(50, 250, 20)
+}
+
+search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
+                     verbose=10)
+search.fit(X_train, y_train)
+```
+
+```python
+search.best_params_, search.best_score_
+```
+
+```python
+search_max_depth_min_samples_split = pd.DataFrame(search.cv_results_)[['param_Classifier__min_samples_split','param_Classifier__max_depth',  'mean_test_score']]
+```
+
+### min_samples_leaf
+
+```python
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             n_estimators=70,
+                                             min_samples_split=150,
+                                              max_depth=7,
+                                             learning_rate=0.2,
+                                             max_features='sqrt',
+                                             subsample=0.8))
+])
+
+parameters = {
+    'Classifier__min_samples_leaf' : range(10, 101, 10)
+}
+
+search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
+                     verbose=10)
+search.fit(X_train, y_train)
+```
+
+```python
+search.best_params_, search.best_score_
+```
+
+```python
+search_min_samples_leaf = pd.DataFrame(search.cv_results_)[['param_Classifier__min_samples_leaf', 'mean_test_score']]
+search_min_samples_leaf
+```
+
+```python
+search_max_feat = pd.DataFrame(search.cv_results_)[['param_Classifier__max_features', 'mean_test_score']]
+```
+
+### Subsample
+
+```python
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             n_estimators=70,
+                                             min_samples_split=150,
+                                              min_samples_leaf=20,
+                                              max_depth=7,
+                                              max_features=32,
+                                             learning_rate=0.2))
+])
+
+parameters = {
+    'Classifier__subsample' : np.linspace(0.6, 0.9, num=6) 
+}
+
+search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
+                     verbose=10)
+search.fit(X_train, y_train)
+```
+
+```python
+search.best_params_, search.best_score_
+```
+
+```python
+search_subsample = pd.DataFrame(search.cv_results_)[['param_Classifier__subsample', 'mean_test_score']]
+```
+
+### Learning and Number of Estimators
+
+
+#### Originals
+
+```python
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             n_estimators=70,
+                                             min_samples_split=150,
+                                              max_depth=7,
+                                              min_samples_leaf=20,
+                                             learning_rate=0.2,
+                                             max_features=33,
+                                             subsample=0.9))
+])
+
+grad_boost.fit(X_train, y_train)
+evaluate(grad_boost, X_train, X_val, y_train, y_val)
+```
+
+```python
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             n_estimators=140,
+                                             min_samples_split=150,
+                                              max_depth=7,
+                                              min_samples_leaf=20,
+                                             learning_rate=0.1,
+                                             max_features=33,
+                                             subsample=0.9))
+])
+
+grad_boost.fit(X_train, y_train)
+evaluate(grad_boost, X_train, X_val, y_train, y_val)
+```
+
+```python
+export_results(grad_boost, 19, test_data_transformed)
+```
+
+```python
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             n_estimators=1400,
+                                             min_samples_split=150,
+                                              max_depth=7,
+                                              min_samples_leaf=20,
+                                             learning_rate=0.01,
+                                             max_features=33,
+                                             subsample=0.9))
+])
+
+grad_boost.fit(X_train, y_train)
+evaluate(grad_boost, X_train, X_val, y_train, y_val)
+```
+
+### Other parameters
+
+```python
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             n_estimators=140,
+                                             min_samples_split=150,
+                                              min_samples_leaf=20,
+                                              max_depth=7,
+                                              max_features=33,
+                                              subsample=0.9,
+                                             learning_rate=0.1))
+])
+
+parameters = {
+    'Classifier__tol' : [0.1, 0.01, 0.001, 0.0001],
+    'Classifier__n_iter_no_change' : range(0, 71, 10)
+}
+
+search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
+                     verbose=10)
+search.fit(X_train, y_train)
+```
+
+```python
+search.best_params_, search.best_score_
+```
+
+```python
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             n_estimators=140,
+                                             min_samples_split=150,
+                                              min_samples_leaf=20,
+                                              max_depth=7,
+                                              max_features=33,
+                                              subsample=0.9,
+                                              n_iter_no_change=50,
+                                              tol=0.01,
+                                             learning_rate=0.1))
+])
+
+parameters = {
+    'Classifier__init': ['zero', LogisticRegression(), None]
+}
+
+search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
+                     verbose=10)
+search.fit(X_train, y_train)
+```
+
+```python
+search.best_params_, search.best_score_
+```
+
+```python
+grad_boost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=0,
+                                             n_estimators=140,
+                                             min_samples_split=150,
+                                              min_samples_leaf=20,
+                                              max_depth=7,
+                                              max_features=33,
+                                              subsample=0.9,
+                                              n_iter_no_change=50,
+                                              tol=0.01,
+                                              init='zero',
+                                             learning_rate=0.1))
+])
+
+grad_boost.fit(X_train, y_train)
+evaluate(grad_boost, X_train, X_val, y_train, y_val)
+```
+
+```python
+grad_boost = Pipeline([('Scaler', MinMaxScaler()),
+                       ('Classifier',GradientBoostingClassifier(random_state=0,
+                                                               n_estimators=1400,
+                                                               min_samples_split=150,
+                                                               max_depth=7,
+                                                               min_samples_leaf=20,
+                                                               learning_rate=0.01,
+                                                               max_features=33,
+                                                               subsample=0.9))
+                      ])
+```
+
+## Hist-Gradient Boosting
+
+
+### Default Parameters
+
+```python
+hist_grad = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', HistGradientBoostingClassifier(random_state=0))
+])
+
+hist_grad.fit(X_train, y_train)
+evaluate(hist_grad, X_train, X_val, y_train, y_val)
+```
+
+```python
+hist_grad = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', HistGradientBoostingClassifier(random_state=0,
+                                                  max_iter=200,
+                                                 scoring=f1_scorer
+                                                 ))
+])
+
+hist_grad.fit(X_train, y_train)
+evaluate(hist_grad, X_train, X_val, y_train, y_val)
+```
+
+```python
+search.best_params_, search.best_score_
+```
+
+```python
+export_results(hist_grad, 20, test_data_transformed)
 ```
 
 ## Decision Tree
