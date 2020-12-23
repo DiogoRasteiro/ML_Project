@@ -51,10 +51,13 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.pipeline import Pipeline
-from sklearn.ensemble import AdaBoostClassifier
-from sklearn.feature_selection import VarianceThreshold, RFECV
+from sklearn.ensemble import AdaBoostClassifier, GradientBoostingClassifier
+from sklearn.experimental import enable_hist_gradient_boosting  
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.feature_selection import VarianceThreshold, RFECV, SelectFromModel
 from sklearn.preprocessing import MinMaxScaler, FunctionTransformer
 from sklearn.svm import SVC
+from sklearn.decomposition import PCA
 
 
 from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
@@ -187,6 +190,20 @@ data['Employment Sector'].value_counts()
 ```
 
 ```python
+def Sectorsector(string):
+    if ' - ' in string:
+        return string.split(' - ')[1]
+    elif ' (' in string:
+        return string.split('(')[1][:-1]
+    else:
+        return string
+```
+
+```python
+data['Employment Sector'].apply(lambda x: Sectorsector(x)).value_countscounts()
+```
+
+```python
 data['Role'].value_counts()
 ```
 
@@ -200,6 +217,10 @@ data[(data['Role'].isna()) & (data['Employment Sector'].isna())]
 
 ```python
 data[(data['Role'].isna()) & ~(data['Employment Sector'].isna())]
+```
+
+```python
+data['Working Hours per week'].map(lambda x: x>data['Working Hours per week'].mean())
 ```
 
 ```python
@@ -268,9 +289,9 @@ def metrics(model, X_train, X_val, y_train, y_val):
     print(classification_report(y_val, pred_val))
     # print(confusion_matrix(y_val, pred_val))
     
-def evaluate(model):
+def evaluate(model, X_train, X_val, y_train, y_val):
     metrics(model, X_train, X_val, y_train, y_val)
-    f1_micro = f1_evaluation(model)
+    f1_micro = f1_evaluation(X_val, y_val, model)
     print(f'The Micro Average of the F1 Score is : {f1_micro}')
     
 def f1_evaluation(X_val, y_val, model):
@@ -280,7 +301,7 @@ def f1_evaluation(X_val, y_val, model):
 ```python
 def batch_model_creation():
     model_df = pd.DataFrame(columns=['Model_Name', 'Initial'])
-                            
+
     input_data = get_metric_features.fit_transform(data)
     target = input_data['Income']
     X = input_data.drop(columns='Income')
@@ -293,22 +314,34 @@ def batch_model_creation():
     # Random Forest
     randForest = RandomForestClassifier(max_depth=10, random_state=0)
     randForest.fit(X_train, y_train)
-    model_df.loc[0] = ['Random Forest', f1_evaluation(X_val, y_val, randForest)]
+    model_df.loc[0] = [
+        'Random Forest',
+        f1_evaluation(X_val, y_val, randForest)
+    ]
 
     #Decision Tree
     dt_gini = DecisionTreeClassifier(max_depth=10, random_state=0)
     dt_gini.fit(X_train, y_train)
-    model_df.loc[1] = ['Decision Tree GINI', f1_evaluation(X_val, y_val, dt_gini)]
+    model_df.loc[1] = [
+        'Decision Tree GINI',
+        f1_evaluation(X_val, y_val, dt_gini)
+    ]
 
     # Multi-layer Perceptron
     mlp = MLPClassifier(random_state=0)
     mlp.fit(X_train, y_train)
-    model_df.loc[2] = ['Multi-layer Perceptron', f1_evaluation(X_val, y_val, mlp)]
+    model_df.loc[2] = [
+        'Multi-layer Perceptron',
+        f1_evaluation(X_val, y_val, mlp)
+    ]
 
     # Logistic Regression
     log_model = LogisticRegression(random_state=0)
     log_model.fit(X_train, y_train)
-    model_df.loc[3] = ['Logistic Regression', f1_evaluation(X_val, y_val, log_model)]
+    model_df.loc[3] = [
+        'Logistic Regression',
+        f1_evaluation(X_val, y_val, log_model)
+    ]
 
     # K-Nearest Neighbors
     knn = KNeighborsClassifier()
@@ -319,19 +352,26 @@ def batch_model_creation():
     nb_model = GaussianNB()
     nb_model.fit(X_train, y_train)
     model_df.loc[5] = ['GaussianNB', f1_evaluation(X_val, y_val, nb_model)]
-    
+
     # AdaBoost
     ada_model = AdaBoostClassifier(n_estimators=100, random_state=0)
     ada_model.fit(X_train, y_train)
     model_df.loc[6] = ['AdaBoost', f1_evaluation(X_val, y_val, ada_model)]
-    
+
+    # Gradiant Boosting
+    grad_model = GradientBoostingClassifier(random_state=0)
+    grad_model.fit(X_train, y_train)
+    model_df.loc[7] = [
+        'GradientBoost',
+        f1_evaluation(X_val, y_val, grad_model)
+    ]
 
     return model_df
 
 
 def batch_model_update(data_steps, model_steps, model_df, score_name):
     new_scores = []
-    
+
     input_data = data_steps.fit_transform(data)
 
     target = input_data['Income']
@@ -348,7 +388,8 @@ def batch_model_update(data_steps, model_steps, model_df, score_name):
                             RandomForestClassifier(max_depth=10,
                                                    random_state=0))])
     for i, s in enumerate(model_steps):
-        randForest.steps.insert(i, s)
+        randForest.steps.insert(i, (str(i), s))
+    print(randForest.steps)
     randForest.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, randForest))
 
@@ -357,45 +398,54 @@ def batch_model_update(data_steps, model_steps, model_df, score_name):
                          DecisionTreeClassifier(max_depth=10,
                                                 random_state=0))])
     for i, s in enumerate(model_steps):
-        dt_gini.steps.insert(i, s)
+        dt_gini.steps.insert(i, (str(i), s))
     dt_gini.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, dt_gini))
 
     # Multi-layer Perceptron
     mlp = Pipeline([('Classifier', MLPClassifier(random_state=0))])
     for i, s in enumerate(model_steps):
-        mlp.steps.insert(i, s)
+        mlp.steps.insert(i, (str(i), s))
     mlp.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, mlp))
 
     # Logistic Regression
     log_model = Pipeline([('Classifier', LogisticRegression(random_state=0))])
     for i, s in enumerate(model_steps):
-        log_model.steps.insert(i, s)
+        log_model.steps.insert(i, (str(i), s))
     log_model.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, log_model))
 
     # K-Nearest Neighbors
     knn = Pipeline([('Classifier', KNeighborsClassifier())])
     for i, s in enumerate(model_steps):
-        knn.steps.insert(i, s)
+        knn.steps.insert(i, (str(i), s))
     knn.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, knn))
 
     # Gaussian Model
     nb_model = Pipeline([('Classifier', GaussianNB())])
     for i, s in enumerate(model_steps):
-        nb_model.steps.insert(i, s)
+        nb_model.steps.insert(i, (str(i), s))
     nb_model.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, nb_model))
-    
+
     # AdaBoost
-    ada_model = Pipeline([('Classifier', AdaBoostClassifier(n_estimators=100, random_state=0))])
+    ada_model = Pipeline([('Classifier',
+                           AdaBoostClassifier(n_estimators=100,
+                                              random_state=0))])
     for i, s in enumerate(model_steps):
-        ada_model.steps.insert(i, s)
+        ada_model.steps.insert(i, (str(i), s))
     ada_model.fit(X_train, y_train)
     new_scores.append(f1_evaluation(X_val, y_val, ada_model))
-    
+
+    # Gradient Boosting
+    grad_model = Pipeline([('Classifier',
+                            GradientBoostingClassifier(random_state=0))])
+    for i, s in enumerate(model_steps):
+        grad_model.steps.insert(i, (str(i), s))
+    grad_model.fit(X_train, y_train)
+    new_scores.append(f1_evaluation(X_val, y_val, grad_model))
 
     new_scores = pd.Series(data=new_scores,
                            name=score_name,
@@ -417,12 +467,6 @@ def export_results(model, nversion,test_data):
     results.index.rename('CITIZEN_ID',inplace=True)
     results.rename(columns={0:'Income'},inplace=True)
     results.to_csv(path_or_buf='subs/Group48_Version'+str(nversion)+'.csv')
-```
-
-```python
-randForest = RandomForestClassifier(max_depth=10, random_state=0)
-randForest.fit(X_train, y_train)
-#export_results(randForest,1,X_test_metrics)
 ```
 
 ```python
@@ -718,12 +762,6 @@ df_model
 ```
 
 ```python
-randForest = RandomForestClassifier(max_depth=10, random_state=0)
-randForest.fit(X_train, y_train)
-evaluate(randForest)
-```
-
-```python
 # export_results(randForest,3,test_data_encoded)
 ```
 
@@ -816,12 +854,6 @@ df_model
 ```
 
 ```python
-randForest = RandomForestClassifier(max_depth=10, random_state=0)
-randForest.fit(X_train, y_train)
-evaluate(randForest)
-```
-
-```python
 # export_results(randForest,5,test_transformed)
 ```
 
@@ -843,18 +875,24 @@ df_model
 ```
 
 ```python
-randForest = RandomForestClassifier(max_depth=10, random_state=0)
-randForest.fit(X_train, y_train)
-evaluate(randForest)
+df_model.drop(columns=['No Outliers Encoded', 'Transformed Variables No Outliers'], inplace=True)
 ```
 
 ## Correlation Analysis
 
 ```python
+data_transformed_pipe = Pipeline([
+    ('Variable Transformation', variable_transformer)
+])
+
+data_transformed = data_transformed_pipe.fit_transform(data)
+```
+
+```python
 # Prepare figure
 fig = plt.figure(figsize=(20, 20))
 # Obtain correlation matrix. Round the values to 2 decimal cases. Use the DataFrame corr() and round() method.
-corr = np.round(data.corr(method="pearson"), decimals=2)
+corr = np.round(data_transformed.corr(method="pearson"), decimals=2)
 # Build annotation matrix (values above |0.5| will appear annotated in the plot)
 mask_annot = np.absolute(corr.values) >= 0.5
 annot = np.where(mask_annot, corr.values, np.full(corr.shape,"")) # Try to understand what this np.where() does
@@ -868,167 +906,196 @@ plt.show()
 ```
 
 ```python
-data.corr(method='spearman')['Income'].abs().sort_values(ascending=False)
+remove_corr = FunctionTransformer(lambda x: x.drop(columns=['is_group_c', 'is_Married', 'Continent_Africa']))
 ```
 
-```python
-##Come back to the previous Step
-data_transformed=data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
-test_transformed=test_data.drop(columns=['Name','Birthday','Marital Status','Lives with','Base Area','Education Level','Employment Sector'])
-
-target_transformed= data_transformed['Income']
-data_transformed.drop(columns='Income', inplace=True)
-
-```
+# Adaboost 0.8626
 
 ```python
-data_t_uncorr=data_transformed.drop(columns=['is_group_c', 'is_Married'])
-```
+data_transformed = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr),
+]).fit_transform(data)
 
-```python
-X_train, X_val, y_train, y_val = train_test_split(data_t_uncorr,
-                                                  target_transformed,
+target = data_transformed['Income']
+X = data_transformed.drop(columns='Income')
+
+X_train, X_val, y_train, y_val = train_test_split(X,
+                                                  target,
                                                   test_size=0.25,
-                                                  stratify=target_transformed,
+                                                  stratify=target,
                                                   random_state=35)
 ```
 
 ```python
-df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated F1 Score')
-df_model
+AdaBoost = Pipeline([
+    ('Scaling', MinMaxScaler()),
+    ('Classifier', AdaBoostClassifier(n_estimators=1000,
+                                      base_estimator=DecisionTreeClassifier(max_depth=1),
+                                      algorithm="SAMME.R"))
+])
+AdaBoost.fit(X_train,y_train)
+
+evaluate(AdaBoost,X_train, X_val, y_train, y_val)
+```
+
+```python
+test_data_transformed = Pipeline([
+    ('Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+]).fit_transform(test_data)
+```
+
+```python
+#export_results(AdaBoost, 12, test_data_transformed)
+```
+
+# Adaboost not Tested
+
+```python
+AdaBoost = Pipeline([
+    ('Scaling', MinMaxScaler()),
+    ('Classifier', AdaBoostClassifier(n_estimators=1000,
+                                      base_estimator=DecisionTreeClassifier(max_depth=1),
+                                      algorithm="SAMME.R"))
+])
+AdaBoost.fit(X_train,y_train)
+
+evaluate(AdaBoost,X_train, X_val, y_train, y_val)
+```
+
+```python
+test_data_transformed = Pipeline([
+    ('Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+]).fit_transform(test_data)
+```
+
+```python
+#export_results(AdaBoost, 12, test_data_transformed)
+```
+
+```python
+data_transformed = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr),
+]).fit_transform(data)
+
+target = data_transformed['Income']
+X = data_transformed.drop(columns='Income')
+
+grid_pipe = Pipeline([
+    ('Scaling', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state = 0))
+])
+
+parameters = {
+    'Classifier__learning_rate': [0.01, 0.05, 0.1],
+    'Classifier__n_estimators' : [30, 50, 100, 150, 200, 500],
+    'Classifier__criterion' : ['friedman_mse', 'mse', 'mae'],
+    'Classifier__max_depth' : [3, 5, 9, 11, 20],
+    'Classifier__max_features' : ['auto', 'sqrt', 'log2', None],
+    
+}
+
+search = GridSearchCV(grid_pipe, parameters, n_jobs=-1, estimator=f1_score)
+search.fit(X, target)
 ```
 
 ## Data Standartization
 
 ```python
-scaler=MinMaxScaler()
-data_t_scaled=pd.DataFrame(scaler.fit_transform(data_t_uncorr), index=data_t_uncorr.index, columns=data_t_uncorr.columns)
-data_t_scaled
-```
+data_pipeline = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+])
 
-```python
-X_train, X_val, y_train, y_val = train_test_split(data_t_scaled,
-                                                  target_transformed,
-                                                  test_size=0.25,
-                                                  stratify=target_transformed,
-                                                  random_state=35)
-```
+model_pipeline = Pipeline([
+    ('Scaler', MinMaxScaler()),
+])
 
-```python
-df_model=batch_model_update(df_model,'Transformed Vars, Uncorrelated Scaled F1 Score')
+df_model = batch_model_update(data_steps=data_pipeline,
+                              model_steps=model_pipeline,
+                              model_df=df_model,
+                              score_name='Scaled')
 df_model
-```
-
-```python
-scaler=MinMaxScaler()
-test_t_scaled=pd.DataFrame(scaler.fit_transform(test_transformed), index=test_transformed.index, columns=test_transformed.columns)
-test_t_scaled
-```
-
-```python
-#export_results(randForest,6,test_t_scaled)
 ```
 
 ## Data Standartization no Outliers
 
 ```python
-scaler=MinMaxScaler()
-data_t_scaled_out=pd.DataFrame(scaler.fit_transform(data_transformed_no_out), index=data_transformed_no_out.index, columns=data_transformed_no_out.columns)
-data_t_scaled_out
-```
+data_pipeline = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+    ('Outlier Removal', outlier_filter_transformer)
+])
 
-```python
-X_train, X_val, y_train, y_val = train_test_split(data_t_scaled_out,
-                                                  target_transformed_no_out,
-                                                  test_size=0.25,
-                                                  stratify=target_transformed_no_out,
-                                                  random_state=35)
-```
+model_pipeline = Pipeline([
+    ('Scaler', MinMaxScaler()),
+])
 
-```python
-df_model=batch_model_update(df_model,'Transformed Vars Scaled No Out F1 Score')
+df_model = batch_model_update(data_steps=data_pipeline,
+                              model_steps=model_pipeline,
+                              model_df=df_model,
+                              score_name='Scaled NO')
 df_model
 ```
 
 ## Feature Selection
 
+```python
+data_pipeline = Pipeline([
+    ('Variable Transformation', variable_transformer),
+])
+
+model_pipeline = Pipeline([
+    ('Impurity Based Feature Selection', SelectFromModel(ExtraTreesClassifier(n_estimators=100))),
+])
+
+batch_model_update(data_steps=data_pipeline,
+                              model_steps=model_pipeline,
+                              model_df=df_model,
+                              score_name='Selection with Tree')
+
+```
 
 #### Standardization First, VarianceThreshold After
 
 ```python
-X_train, X_val, y_train, y_val = train_test_split(data_t_uncorr,
-                                                  target_transformed,
-                                                  test_size=0.25,
-                                                  stratify=target_transformed,
-                                                  random_state=35)
-```
-
-```python
-var_pipe=Pipeline([
-    ('Standardization', MinMaxScaler()),
-    ('Feature Selection', VarianceThreshold(threshold = .8 * (1 - .8))),
-    ('Classifier', RandomForestClassifier(max_depth = 10, random_state = 0))
+data_pipeline = Pipeline([
+    ('Variable Transformation', variable_transformer),
 ])
-    
-var_pipe.fit(X_train,y_train)
-```
 
-```python
-evaluate(var_pipe)
-```
+model_pipeline = Pipeline([
+    ('Standardization', MinMaxScaler()),
+    ('Feature Selection', VarianceThreshold(threshold=.8 * (1 - .8))),
+])
 
-```python
-data_transformed.iloc[:,var_pipe.named_steps['Feature Selection'].get_support(indices=True)]
+batch_model_update(data_steps=data_pipeline,
+                   model_steps=model_pipeline,
+                   model_df=df_model,
+                   score_name='STD-VT')
 ```
 
 #### VarianceThreshold First, Standardization After
 
 ```python
-var_pipe=Pipeline([
-    ('Feature Selection', VarianceThreshold(threshold = .8 * (1 - .8))),
-    ('Standardization', MinMaxScaler()),
-    ('Classifier', RandomForestClassifier(max_depth = 10, random_state = 0))
+data_pipeline = Pipeline([
+    ('Variable Transformation', variable_transformer),
 ])
-    
-var_pipe.fit(X_train,y_train)
-```
 
-```python
-evaluate(var_pipe)
-```
+model_pipeline = Pipeline([
+    ('Feature Selection', VarianceThreshold(threshold=.8 * (1 - .8))),
+    ('Standardization', MinMaxScaler()),
+])
 
-```python
-df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated Pipe VarThresh F1 Score')
-df_model
-```
-
-```python
-data_transformed.iloc[:,var_pipe.named_steps['Feature Selection'].get_support(indices=True)]
-```
-
-```python
-test_t_uncorr=test_transformed.drop(columns=['is_group_c','is_Married'])
-```
-
-```python
-#export_results(var_pipe,7,test_t_uncorr)
+batch_model_update(data_steps=data_pipeline,
+                   model_steps=model_pipeline,
+                   model_df=df_model,
+                   score_name='VT-STD')
 ```
 
 #### Std first, RFE after
-
-```python
-var_pipe=Pipeline([ 
-    ('Standardization', MinMaxScaler()),
-    ('Feature Selection', RFECV(estimator=SVC(kernel='linear'),step=1,cv=StratifiedKFold(2), scoring='f1_micro')),
-    ('Classifier', AdaBoostClassifier(n_estimators=100, random_state = 0))
-])
-    
-var_pipe.fit(X_train,y_train)
-```
-
-```python
-evaluate(var_pipe)
-```
 
 ```python
 df_model=batch_model_update(df_model,'Transformed Vars Uncorrelated Pipe STD RFE F1 Score')
@@ -1082,6 +1149,28 @@ ax_ticks=plt.xticks(rotation='vertical')
 
 ## Random Forest
 
+
+### Grid Search
+
+```python
+randForest = RandomForestClassifier()
+
+parameters = {
+    'n_estimators' : [50, 100, 200],
+    'max_depth' : [5, 9, 10, 11, 20],
+    'warm_start' : [True, False],
+    'max_features' : ['auto', 'sqrt', 'log2'],
+    'bootstrap' : [True, False],
+    'min_impurity_decrease' : [0, 0.01, 0.1, 0.2, 0.5]
+}
+
+search = GridSearchCV(randForest, parameters, estimator = f1_score)
+search.fit(X, target)
+```
+
+```python
+RandomForestClassifier().get_params().keys()
+```
 
 ### Max Depth
 
@@ -1234,6 +1323,27 @@ evaluate(dt_gini)
 ## Multi Layer Perceptron
 
 
+Grid Search
+
+```python
+mlp = MLPClassifier()
+
+parameters={
+    'activation': ['relu','logistic','tanh'],
+    'hidden_layer_sizes' : [(10,10,10),(30,),(20,10),(30,10),(100,)],
+    'alpha':[0.0001,0.001,0.01,0.05],
+    'learning_rate': ['constant', 'invscaling', 'adaptive'],
+    'learning_rate_init': [0.0001,0.001,0.01,0.05]
+}
+
+search = GridSearchCV(mlp, parameters, estimator = f1_score)
+search.fit(X, target)
+```
+
+```python
+
+```
+
 ### Activation
 
 ```python
@@ -1335,45 +1445,213 @@ mlp.fit(X_train, y_train)
 evaluate(mlp)
 ```
 
+# Boosting
+
+
+# Adaboost 0.8626
+
 ```python
+data_transformed = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr),
+]).fit_transform(data)
+
+target = data_transformed['Income']
+X = data_transformed.drop(columns='Income')
+
+X_train, X_val, y_train, y_val = train_test_split(X,
+                                                  target,
+                                                  test_size=0.25,
+                                                  stratify=target,
+                                                  random_state=35)
+```
+
+```python
+AdaBoost = Pipeline([
+    ('Scaling', MinMaxScaler()),
+    ('Classifier', AdaBoostClassifier(n_estimators=1000,
+                                      base_estimator=DecisionTreeClassifier(max_depth=1),
+                                      algorithm="SAMME.R"))
+])
+AdaBoost.fit(X_train,y_train)
+
+evaluate(AdaBoost,X_train, X_val, y_train, y_val)
+```
+
+```python
+test_data_transformed = Pipeline([
+    ('Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+]).fit_transform(test_data)
+```
+
+```python
+#export_results(AdaBoost, 12, test_data_transformed)
+```
+
+# Gradboost
+
+```python
+GradBoost = Pipeline([
+    ('Scaling', MinMaxScaler()),
+    ('Classifier', GradientBoostingClassifier(random_state=10,
+                                              n_iter_no_change=100,
+                                             learning_rate=0.1,
+                                             n_estimators=500,
+                                             max_depth=3,
+                                             max_features='sqrt',
+                                             validation_fraction=0.2,
+                                             tol=0.001
+                                             ))
+])
+GradBoost.fit(X_train,y_train)
+
+evaluate(GradBoost,X_train, X_val, y_train, y_val)
+```
+
+```python
+GradBoost['Classifier'].feature_importances_
+```
+
+## Feature Importance
+
+```python
+feature_importance=pd.DataFrame([test_data_transformed.columns,HistBoost['Histogram-Based Gradient Boosting'].feature_importances_])
+feature_importance=feature_importance.T
+feature_importance.rename(columns={0:'Feature',1:'Importance'},inplace=True)
+feature_importance
+
+##Feature Importance Graph
+plt.figure(figsize=(10,10))
+sns.barplot(x='Feature',y='Importance',data=feature_importance, order=feature_importance.sort_values('Importance', ascending=False).Feature)
+ax_ticks=plt.xticks(rotation='vertical')
+```
+
+```python
+remove_unimportant = FunctionTransformer(lambda x: x.drop(columns=['Role_Household Services', 'Role_Army', ]))
+```
+
+```python
+def avg_score_GB(method,model,X,y):
+    score_train = []
+    score_test = []
+    for train_index, test_index in method.split(X,y):
+        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+        model = model.fit(X_train,y_train)
+        value_train = f1_evaluation(X_train, y_train, model)
+        value_test = f1_evaluation(X_test,y_test, model)
+        score_train.append(value_train)
+        score_test.append(value_test)
+
+    print('Train:', np.mean(score_train))
+    print('Test:', np.mean(score_test))
+```
+
+```python
+data_transformed = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr),
+    ('Remove Unimportant', remove_unimportant)
+    
+]).fit_transform(data)
+
+target = data_transformed['Income']
+X = data_transformed.drop(columns='Income')
+
+
+
+X_train, X_val, y_train, y_val = train_test_split(X,
+                                                  target,
+                                                  test_size=0.25,
+                                                  stratify=target,
+                                                random_state=35)
+
+from imblearn.under_sampling import ClusterCentroids
+cc = ClusterCentroids(random_state=0)
+X_train_resampled, y_train_resampled = cc.fit_resample(X_train, y_train)
 
 ```
 
 ```python
+data_transformed = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+    
+]).fit_transform(data)
+
+target = data_transformed['Income']
+X = data_transformed.drop(columns='Income')
+
+
+
+X_train, X_val, y_train, y_val = train_test_split(X,
+                                                  target,
+                                                  test_size=0.25,
+                                                  stratify=target,
+                                                random_state=35)
 
 ```
 
 ```python
+HistBoost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Histogram-Based Gradient Boosting', HistGradientBoostingClassifier(loss='binary_crossentropy',
+                                                                        random_state=10,
+                                                                        max_iter=700,
+                                                                        max_depth=2,
+                                                                        n_iter_no_change=400,
+                                                                        tol=0.1,
+                                                                        validation_fraction=0.05,
+                                                                         learning_rate=0.15,
+                                                                        warm_start=True
+                                                                         ))
+])
 
+
+skf=StratifiedKFold(n_splits=3,shuffle=False,random_state=0)
+
+#avg_score_GB(skf,GradBoost,X, target)
+
+HistBoost.fit(X_train,y_train)
+
+evaluate(HistBoost,X_train, X_val, y_train, y_val)
 ```
 
 ```python
- # Random Forest
-    randForest = RandomForestClassifier(max_depth=10, random_state=0,)
-    randForest.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(randForest)) 
+HistBoost = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Histogram-Based Gradient Boosting', HistGradientBoostingClassifier(loss='binary_crossentropy',
+                                                                        random_state=10,
+                                                                        max_iter=500,
+                                                                        max_depth=2,
+                                                                        n_iter_no_change=300,
+                                                                        tol=0.01,
+                                                                        validation_fraction=0.1,
+                                                                        learning_rate=0.2,
+                                                                         warm_start=True
+                                                                         ))
+])
+
+
+skf=StratifiedKFold(n_splits=3,shuffle=False,random_state=0)
+
+#avg_score_GB(skf,GradBoost,X, target)
+
+HistBoost.fit(X_train,y_train)
+
+evaluate(HistBoost,X_train, X_val, y_train, y_val)
+```
+
+```python
+test_data_transformed = Pipeline([
+    ('Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr),
+    ('Remove Unimportant', remove_unimportant)
     
-    dt_gini = DecisionTreeClassifier(max_depth = 10, random_state=0)
-    dt_gini.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(dt_gini)) 
-    
-    # Multi-layer Perceptron
-    mlp = MLPClassifier()
-    mlp.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(mlp)) 
-    
-    # Logistic Regression
-    log_model = LogisticRegression()
-    log_model.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(log_model)) 
-    
-    # K-Nearest Neighbors
-    knn = KNeighborsClassifier()
-    knn.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(knn)) 
-    
-    # Gaussian Model
-    nb_model = GaussianNB()
-    nb_model.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(nb_model))
+]).fit_transform(test_data)
+```
+
+```python
+export_results(GradBoost, 18, test_data_transformed)
 ```
