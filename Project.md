@@ -51,11 +51,18 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.pipeline import Pipeline
+<<<<<<< Updated upstream
 from sklearn.ensemble import AdaBoostClassifier, GradientBoostingClassifier
 from sklearn.experimental import enable_hist_gradient_boosting  
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.feature_selection import VarianceThreshold, RFECV, SelectFromModel
 from sklearn.preprocessing import MinMaxScaler, FunctionTransformer
+=======
+from sklearn.ensemble import AdaBoostClassifier, GradientBoostingClassifier, HistGradientBoostingClassifier, StackingClassifier, BaggingClassifier
+from sklearn.feature_selection import VarianceThreshold, RFE, RFECV, SelectFromModel
+from sklearn.preprocessing import MinMaxScaler, FunctionTransformer, RobustScaler, StandardScaler
+from sklearn.decomposition import PCA
+>>>>>>> Stashed changes
 from sklearn.svm import SVC
 from sklearn.decomposition import PCA
 
@@ -182,7 +189,7 @@ test_data['Base Area'].value_counts()
 ```
 
 ```python
-data['Base Area'].value_counts()
+data.groupby('Base Area')['Income'].value_counts().sort_values()
 ```
 
 ```python
@@ -506,6 +513,27 @@ plt.suptitle(title)
 plt.show()
 ```
 
+```python
+%matplotlib inline
+# All Numeric Variables' Histograms in one figure
+sns.set()
+
+# Prepare figure. Create individual axes where each histogram will be placed
+fig, axes = plt.subplots(2, int(len(metric_features) / 2), figsize=(20, 11))
+# Plot data
+
+# Iterate across axes objects and associate each histogram (hint: use the ax.hist() instead of plt.hist()):
+for ax, feat in zip(axes.flatten(), metric_features): # Notice the zip() function and flatten() method
+    ax.hist(data[feat])
+    ax.set_title(feat, y=-0.13)
+    
+# Layout
+# Add a centered title to the figure:
+title = "Test Numeric Variables' Histograms"
+plt.suptitle(title)
+plt.show()
+```
+
 ### Numeric Boxplots
 
 ```python
@@ -522,6 +550,24 @@ for ax, feat in zip(axes.flatten(), metric_features): # Notice the zip() functio
 # Layout
 # Add a centered title to the figure:
 title = "Numeric Variables' Box Plots"
+plt.suptitle(title)
+plt.show()
+```
+
+```python
+# All Numeric Variables' Box Plots in one figure
+sns.set()
+# Prepare figure. Create individual axes where each box plot will be placed
+fig, axes = plt.subplots(2, int(len(metric_features) / 2), figsize=(20, 11))
+
+# Plot data
+# Iterate across axes objects and associate each box plot (hint: use the ax argument):
+for ax, feat in zip(axes.flatten(), metric_features): # Notice the zip() function and flatten() method
+    sns.boxplot(x=test_data[feat], ax=ax)
+    
+# Layout
+# Add a centered title to the figure:
+title = "Test Numeric Variables' Box Plots"
 plt.suptitle(title)
 plt.show()
 ```
@@ -721,12 +767,39 @@ lives_northbury_encoder = FunctionTransformer(lives_northbury)
 ```
 
 ```python
+def AbvAvgWH(df):
+    df['Abv Avg WH per Role']=0
+
+    for val in df['Role'].unique():
+        index=df[df['Role']==val].index
+        mean=df[df['Role']==val]['Working Hours per week'].mean()
+        df.loc[index,'Abv Avg WH per Role'] =df.loc[index,'Working Hours per week'].apply(lambda x: 1 if x>mean else 0)
+    return df
+
+abv_avg_wh_role=FunctionTransformer(AbvAvgWH)
+```
+
+```python
+def AbvAvgYoE(df):
+    df['Abv Avg YoE per Role']=0
+
+    for val in df['Role'].unique():
+        index=df[df['Role']==val].index
+        mean=df[df['Role']==val]['Years of Education'].mean()
+        df.loc[index,'Abv Avg YoE per Role'] =df.loc[index,'Years of Education'].apply(lambda x: 1 if x>mean else 0)
+    return df
+
+abv_avg_yoe_role=FunctionTransformer(AbvAvgYoE)
+```
+
+```python
 def role_dummies(df):
     df = df.copy()
     df = df.drop(columns='Role').merge(pd.get_dummies(
         df['Role'], prefix='Role').iloc[:, :-1],
                                        on=df.index,
                                        left_index=True)
+    
     return df.drop(columns='key_0')
 
 role_enconder = FunctionTransformer(role_dummies)
@@ -740,6 +813,8 @@ variable_encoder = Pipeline([
     ('Native Continent', continent_encoder),
     ('Lives With', lives_with_encoder),
     ('Lives in Northbury', lives_northbury_encoder),
+    ('Above Average Working Hours per role', abv_avg_wh_role),
+    ('Above Average YoE per role', abv_avg_yoe_role),
     ('Role', role_enconder)
 ])
 
@@ -771,6 +846,7 @@ df_model
 encoded_no_out_pipeline = Pipeline([
     ('Remove Outliers', outlier_filter_transformer),
     ('Encode Variables', variable_encoder),
+    ('Outlier Remove', outlier_filter_transformer),
     ('Get Metric Features', get_metric_features)
 ])
 ```
@@ -906,7 +982,19 @@ plt.show()
 ```
 
 ```python
-remove_corr = FunctionTransformer(lambda x: x.drop(columns=['is_group_c', 'is_Married', 'Continent_Africa']))
+corr['Money Received'].abs().sort_values(ascending=False)
+```
+
+```python
+corr['Income'].abs().sort_values(ascending=False)
+```
+
+```python
+remove_corr = FunctionTransformer(lambda x: x.drop(columns=['is_group_c', 'is_Married', 'Money Received per YoE', 'Money Received per Age', 'Ticket Price per YoE', 'Ticket Price per Age', 'Private Sector']))
+```
+
+```python
+remove_uncorrelated = FunctionTransformer(lambda x: x.drop(columns=['Role_Army','Continent_Asia']))
 ```
 
 # Adaboost 0.8626
@@ -942,17 +1030,341 @@ evaluate(AdaBoost,X_train, X_val, y_train, y_val)
 ```python
 test_data_transformed = Pipeline([
     ('Transformation', variable_transformer),
-    ('Correlation Removal', remove_corr)
+    ('Correlation Removal', remove_corr),
 ]).fit_transform(test_data)
 ```
 
 ```python
+<<<<<<< Updated upstream
 #export_results(AdaBoost, 12, test_data_transformed)
+=======
+#generate_report(data_transformed, 'reports/citizen_profiling_after_transformation')
+```
+
+# Peixoto
+# Gradiend Grid Search
+
+```python
+
+```
+
+```python
+
+```
+
+```python
+
+```
+
+```python
+
+```
+
+```python
+GradBoost = Pipeline([('Scaler', MinMaxScaler()),
+                      ('Classifier',GradientBoostingClassifier(random_state=10,
+                                                               n_estimators=70,
+                                                               min_samples_split=300,
+                                                              min_samples_leaf=40,
+                                                              max_depth=9,
+                                                              max_features=11,
+                                                               learning_rate=0.2,
+                                                               subsample=0.8))
+                     ])
+
+parameters = {
+    'Classifier__subsample':[0.6,0.7,0.75,0.8,0.85,0.9]
+    
+    
+}
+
+search = GridSearchCV(GradBoost, parameters, estimator=f1_score, verbose=10)
+search.fit(X, target)
+```
+
+```python
+search.best_params_, search.best_score_
+```
+
+# Tuned GradBoost
+
+```python
+GradBoost = Pipeline([('Scaler', MinMaxScaler()),
+                      ('Classifier',GradientBoostingClassifier(random_state=10,
+                                                               n_estimators=1400,
+                                                               min_samples_split=300,
+                                                              min_samples_leaf=60,
+                                                              max_depth=7,
+                                                              max_features=11,
+                                                               learning_rate=0.01,
+                                                               subsample=0.8))
+                     ])
+
+GradBoost.fit(X_train, y_train)
+evaluate(GradBoost, X_train, X_val, y_train, y_val)
+```
+
+```python
+#export_results(GradBoost, 21, test_data_transformed)
+```
+
+# Adaboost Grid Search
+
+```python
+ada_model = AdaBoostClassifier(base_estimator=RandomForestClassifier(max_depth=5, n_estimators = 10, random_state=0),
+                              n_estimators=50,
+                              random_state=0)
+ada_model.fit(X_train, y_train)
+
+evaluate(ada_model, X_train, X_val, y_train, y_val)
+```
+
+```python
+AdaBoost = Pipeline([('Scaler', MinMaxScaler()),
+                      ('Classifier',AdaBoostClassifier(n_estimators=30,
+                                                       random_state=10,
+                                                       learning_rate=0.2,
+                                                      base_estimator=RandomForestClassifier(max_depth=5,
+                                                                                            n_estimators = 10,
+                                                                                            random_state=10)))
+                     ])
+
+parameters = {
+    'Classifier__base_estimator': [RandomForestClassifier(max_depth=5,n_estimators = 10,random_state=10),
+                                  RandomForestClassifier(max_depth=15,n_estimators = 60,random_state=10),
+                                  RandomForestClassifier(max_depth=10,n_estimators = 30,random_state=10)]
+    
+    
+}
+
+search = GridSearchCV(AdaBoost, parameters, estimator=f1_score, verbose=10)
+search.fit(X_train, y_train)
+```
+
+```python
+search.best_params_, search.best_score_
+```
+
+# Tuned Adaboost
+
+```python
+AdaBoost = Pipeline([('Scaler', MinMaxScaler()),
+                      ('Classifier',AdaBoostClassifier(n_estimators=100,
+                                                       random_state=10,
+                                                       learning_rate=0.2,
+                                                      base_estimator=RandomForestClassifier(max_depth=5, 
+                                                                                            n_estimators=70, 
+                                                                                            random_state=10)))
+                     ])
+
+AdaBoost.fit(X_train, y_train)
+
+evaluate(AdaBoost, X_train, X_val, y_train, y_val)
+```
+
+# HistGrad Grid Search
+
+```python
+hist_grad = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', HistGradientBoostingClassifier(random_state=10,
+                                                  max_iter=50,
+                                                  learning_rate=0.2
+                                                 ))
+])
+
+parameters = {
+    'Classifier__max_iter' : range(20,81,10)
+}
+
+search = GridSearchCV(hist_grad, parameters,scoring=f1_scorer, verbose=10)
+search.fit(X_train, y_train)
+```
+
+```python
+search.best_params_, search.best_score_
+```
+
+# HistGrad Tuned
+
+```python
+hist_grad = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', HistGradientBoostingClassifier(random_state=10,max_iter=50,learning_rate=0.2))
+])
+
+hist_grad.fit(X_train, y_train)
+evaluate(hist_grad, X_train, X_val, y_train, y_val)
+```
+
+# Rand Forest GridSearch
+
+```python
+RandForest = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', RandomForestClassifier(random_state=10,
+                                          n_estimators=100, 
+                                          max_depth=9,
+                                          min_samples_split=70,
+                                      
+                                         ))
+])
+
+parameters = {
+    'Classifier__n_estimators' : range(130,155,10),
+    'Classifier__max_features' : range(30,34,1),
+    'Classifier__max_depth' : range(15,20,2),
+    
+}
+
+search = GridSearchCV(RandForest, parameters,scoring=f1_scorer, verbose=10,cv=4)
+search.fit(X_train, y_train)
+
+search.best_params_, search.best_score_
+```
+
+```python
+RandForest = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', RandomForestClassifier(random_state=10,
+                                          n_estimators=130, 
+                                          max_depth=19,
+                                          min_samples_split=80,
+                                          max_features=31,
+                                         ))
+])
+
+RandForest.fit(X_train, y_train)
+evaluate(RandForest, X_train, X_val, y_train, y_val)
+```
+
+# GradBoost Bagging
+
+```python
+grad=Pipeline([('Scaler', MinMaxScaler()),
+               ('Classifier',GradientBoostingClassifier(random_state=10,
+                                                        n_estimators=70,
+                                                        learning_rate=0.2,
+                                                        warm_start=True,
+                                                       min_samples_split=350,
+                                                       min_samples_leaf=60,
+                                                       max_depth=9,
+                                                       max_features=11,
+                                                       subsample=0.8,
+                                                       ccp_alpha=0.00001
+                                                                      ))
+                     ])
+
+grad_bag = BaggingClassifier(base_estimator=grad,
+                           random_state=10, 
+                           n_estimators = 3, 
+                           bootstrap=True)
+
+grad_bag.fit(X_train, y_train)
+evaluate(grad_bag, X_train, X_val, y_train, y_val)
+```
+
+```python
+GradBoost = Pipeline([('Scaler', MinMaxScaler()),
+                      ('Classifier',GradientBoostingClassifier(random_state=10,
+                                                                       n_estimators=70,
+                                                                        learning_rate=0.2,
+                                                                        warm_start=True,
+                                                                       min_samples_split=350,
+                                                                       min_samples_leaf=60,
+                                                                       max_depth=9,
+                                                                       max_features=11,
+                                                                       subsample=0.8,
+                                                                       ccp_alpha=0.00001
+                                                                      ))
+                     ])
+
+GradBoost.fit(X_train, y_train)
+evaluate(GradBoost, X_train, X_val, y_train, y_val)
+```
+
+# Adaboost com Bagging La dentro
+
+```python
+AdaBoost = Pipeline([('Scaler', MinMaxScaler()),
+                      ('Classifier',AdaBoostClassifier(n_estimators=10,
+                                                       random_state=10,
+                                                       learning_rate=0.2,
+                                                      base_estimator=grad_bag))
+                     ])
+
+AdaBoost.fit(X_train, y_train)
+
+evaluate(AdaBoost, X_train, X_val, y_train, y_val)
+```
+
+# Ensemble
+
+```python
+ensembler = StackingClassifier([
+    ('GradBoost', grad_bag),
+    ('AdaBoost', AdaBoost),
+    ('Hist Grad Boost', hist_grad),
+    #('RandForest', RandForest),
+    
+])
+ensembler.fit(X_train, y_train)
+evaluate(ensembler, X_train, X_val, y_train, y_val)
+```
+
+```python
+ensembler = StackingClassifier([
+    ('Grad_Boost', GradBoost),
+    ('AdaBoost', AdaBoost),
+    ('Hist Grad Boost', hist_grad),
+    ('RandForest', RandForest),
+    
+])
+ensembler.fit(X_train, y_train)
+evaluate(ensembler, X_train, X_val, y_train, y_val)
+```
+
+```python
+export_results(ensembler, 24, test_data_transformed)
+```
+
+# Bagging Weak Learners
+
+```python
+log_reg = Pipeline([('Scaler', MinMaxScaler()),
+                      ('Classifier',LogisticRegression(random_state=10,))
+                     ])
+
+weak_bag=BaggingClassifier(base_estimator=log_reg,
+                           random_state=10,
+                           n_estimators =10,
+                           warm_start=True,
+                           bootstrap=True)
+
+weak_bag.fit(X_train, y_train)
+evaluate(weak_bag, X_train, X_val, y_train, y_val)
+```
+
+```python
+mlp_pipe = Pipeline([('Scaler', MinMaxScaler()),
+                      ('Classifier',MLPClassifier(activation='relu', hidden_layer_sizes=(30,),random_state=10))
+                     ])
+
+weak_bag=BaggingClassifier(base_estimator=mlp_pipe,
+                           random_state=10,
+                           n_estimators =5,
+                           warm_start=True,
+                           bootstrap=True)
+
+weak_bag.fit(X_train, y_train)
+evaluate(weak_bag, X_train, X_val, y_train, y_val)
+>>>>>>> Stashed changes
 ```
 
 # Adaboost not Tested
 
 ```python
+<<<<<<< Updated upstream
 AdaBoost = Pipeline([
     ('Scaling', MinMaxScaler()),
     ('Classifier', AdaBoostClassifier(n_estimators=1000,
@@ -962,6 +1374,46 @@ AdaBoost = Pipeline([
 AdaBoost.fit(X_train,y_train)
 
 evaluate(AdaBoost,X_train, X_val, y_train, y_val)
+=======
+ensembler = StackingClassifier([
+    ('Grad_Boost', GradBoost),
+    ('MLP', mlp_pipe),
+    ('Hist Grad Boost', hist_grad),
+    ('LogReg', log_reg),
+    
+    
+    
+])
+ensembler.fit(X_train, y_train)
+evaluate(ensembler, X_train, X_val, y_train, y_val)
+```
+
+```python
+export_results(ensembler, 29, test_data_transformed)
+```
+
+```python
+
+```
+
+# Peixoto End
+
+```python
+mlp = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', MLPClassifier(random_state=0))
+])
+parameters = {
+    'Classifier__hidden_layer_sizes' : [(30, 20), (30,20, 10)],
+    'Classifier__activation' : ['tanh'],
+    'Classifier__learning_rate' : ['adaptive'],
+    'Classifier__max_iter' : [100, 200],
+    'Classifier__early_stopping' : [True]
+}
+
+search = GridSearchCV(estimator=mlp, parameters, estimator=f1_score, verbose=10)
+search.fit(X, target)
+>>>>>>> Stashed changes
 ```
 
 ```python
@@ -1284,10 +1736,10 @@ max_depths=range(1,30)
 f1_scores_val=[]
 f1_scores_train=[]
 for i in max_depths:    
-    dt_gini = DecisionTreeClassifier(max_depth = i, random_state=0)
+    dt_gini = DecisionTreeClassifier(max_depth = i, random_state=10)
     dt_gini.fit(X_train, y_train)
     f1_scores_train.append(f1_score(y_train, dt_gini.predict(X_train), average='micro'))
-    f1_scores_val.append(f1_evaluation(dt_gini))
+    f1_scores_val.append(f1_evaluation(X_val,y_val, model=dt_gini))
 ```
 
 ```python
