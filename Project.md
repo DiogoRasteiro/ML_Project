@@ -44,7 +44,7 @@ from pandas_profiling import ProfileReport
 from datetime import datetime
 
 # Model Libraries
-from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, StackingClassifier, VotingClassifier, BaggingClassifier
 from sklearn.experimental import enable_hist_gradient_boosting
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neural_network import MLPClassifier
@@ -53,7 +53,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.pipeline import Pipeline
-from sklearn.ensemble import AdaBoostClassifier, GradientBoostingClassifier, HistGradientBoostingClassifier
+from sklearn.ensemble import AdaBoostClassifier, GradientBoostingClassifier, HistGradientBoostingClassifier, ExtraTreesClassifier, IsolationForest
 from sklearn.feature_selection import VarianceThreshold, RFE, RFECV, SelectFromModel
 from sklearn.preprocessing import MinMaxScaler, FunctionTransformer, RobustScaler, StandardScaler
 from sklearn.decomposition import PCA
@@ -582,7 +582,7 @@ filters1 = (
     ((data['Money Received']>=134) | (data['Money Received']==0))
     
 )
-len(data[filters1])
+len(data[filters1]) /len(data)
 ```
 
 ```python
@@ -900,7 +900,15 @@ plt.show()
 ```
 
 ```python
-remove_corr = FunctionTransformer(lambda x: x.drop(columns=['is_group_c', 'is_Married', 'Continent_Africa']))
+corr['Income'].apply(np.abs).sort_values(ascending=False)
+```
+
+```python
+remove_corr = FunctionTransformer(lambda x: x.drop(columns=['is_group_c', 'is_Married', 'Continent_Africa',
+                                                           'Ticket Price per Age', 'Money Received per Age',
+                                                           'Ticket Price per YoE', 'Money Received per YoE',
+                                                           'Ticket Price per WHpW', 'Money Received per WHpW',
+                                                           'Education per Age']))
 ```
 
 ```python
@@ -926,7 +934,21 @@ f1_scorer = make_scorer(f1_score, average='micro')
 ```
 
 ```python
-generate_report(data_transformed, 'reports/citizen_profiling_after_transformation')
+test_model = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', BaggingClassifier(random_state=0, base_estimator=))
+])
+
+parameters = {
+    'Classifier__' : 0
+}
+
+test_model.fit(X_train, y_train)
+evaluate(test_model, X_train, X_val, y_train, y_val)
+```
+
+```python
+# generate_report(data_transformed, 'reports/citizen_profiling_after_transformation')
 ```
 
 ```python
@@ -1316,11 +1338,11 @@ search_max_depth_min_samples_split = pd.DataFrame(search.cv_results_)[['param_Cl
 grad_boost = Pipeline([
     ('Scaler', MinMaxScaler()),
     ('Classifier', GradientBoostingClassifier(random_state=0,
-                                             n_estimators=70,
-                                             min_samples_split=150,
-                                              max_depth=7,
+                                             n_estimators=220,
+                                             min_samples_split=190,
+                                              max_depth=5,
                                              learning_rate=0.2,
-                                             max_features='sqrt',
+                                             max_features=30,
                                              subsample=0.8))
 ])
 
@@ -1352,11 +1374,11 @@ search_max_feat = pd.DataFrame(search.cv_results_)[['param_Classifier__max_featu
 grad_boost = Pipeline([
     ('Scaler', MinMaxScaler()),
     ('Classifier', GradientBoostingClassifier(random_state=0,
-                                             n_estimators=70,
-                                             min_samples_split=150,
-                                              min_samples_leaf=20,
-                                              max_depth=7,
-                                              max_features=32,
+                                             n_estimators=220,
+                                             min_samples_split=190,
+                                              min_samples_leaf=50,
+                                              max_depth=5,
+                                              max_features=30,
                                              learning_rate=0.2))
 ])
 
@@ -1386,12 +1408,12 @@ search_subsample = pd.DataFrame(search.cv_results_)[['param_Classifier__subsampl
 grad_boost = Pipeline([
     ('Scaler', MinMaxScaler()),
     ('Classifier', GradientBoostingClassifier(random_state=0,
-                                             n_estimators=70,
-                                             min_samples_split=150,
-                                              max_depth=7,
-                                              min_samples_leaf=20,
-                                             learning_rate=0.2,
-                                             max_features=33,
+                                             n_estimators=4400,
+                                             min_samples_split=190,
+                                              max_depth=5,
+                                              min_samples_leaf=50,
+                                             learning_rate=0.01,
+                                             max_features=30,
                                              subsample=0.9))
 ])
 
@@ -1516,15 +1538,17 @@ evaluate(grad_boost, X_train, X_val, y_train, y_val)
 
 ```python
 grad_boost = Pipeline([('Scaler', MinMaxScaler()),
-                       ('Classifier',GradientBoostingClassifier(random_state=0,
-                                                               n_estimators=1400,
-                                                               min_samples_split=150,
-                                                               max_depth=7,
-                                                               min_samples_leaf=20,
-                                                               learning_rate=0.01,
-                                                               max_features=33,
-                                                               subsample=0.9))
-                      ])
+                       ('Classifier',GradientBoostingClassifier(random_state=10, 
+                                                                learning_rate=0.1, 
+                                                                n_estimators=140, 
+                                                                max_depth=7, 
+                                                                min_samples_leaf=60,
+                                                                max_features=30,
+                                                                subsample=0.8))
+                                                                ])
+
+grad_boost.fit(X_train, y_train)
+evaluate(grad_boost, X_train, X_val, y_train, y_val)
 ```
 
 ## Hist-Gradient Boosting
@@ -1546,7 +1570,6 @@ evaluate(hist_grad, X_train, X_val, y_train, y_val)
 hist_grad = Pipeline([
     ('Scaler', MinMaxScaler()),
     ('Classifier', HistGradientBoostingClassifier(random_state=0,
-                                                  max_iter=200,
                                                  scoring=f1_scorer
                                                  ))
 ])
@@ -1560,7 +1583,82 @@ search.best_params_, search.best_score_
 ```
 
 ```python
-export_results(hist_grad, 20, test_data_transformed)
+optimized_randForest = RandomForestClassifier(random_state=0,
+                                             max_depth=15,
+                                             max_features='sqrt',
+                                             n_estimators=60,
+                                              min_samples_leaf=2,
+                                             warm_start=True)
+parameters = {
+    'bootstrap' : [True, False]
+}
+
+search = GridSearchCV(optimized_randForest, parameters, scoring=f1_scorer, verbose=10)
+search.fit(X_train, y_train)
+search.best_score_, search.best_params_
+```
+
+```python
+optimized_randForest = BaggingClassifier(RandomForestClassifier(random_state=0,
+                                                                 max_depth=30,
+                                                                 max_features='sqrt',
+                                                                 n_estimators=60,
+                                                                 bootstrap=False,
+                                                                 min_samples_leaf=2,
+                                                                 warm_start=True),
+                                         random_state=0,
+                                         bootstrap=False,
+                                         n_estimators=10
+                                        )
+optimized_randForest.fit(X_train, y_train)
+evaluate(optimized_randForest, X_train, X_val, y_train, y_val)
+```
+
+```python
+ensembler = VotingClassifier([
+        ('Grad Bag', grad_bag),
+        ('HG Bag', hg_bag),
+        ('Grad Boosting', grad_boost),
+        ('Hist Grad', hist_grad),
+        ('Random Forest', optimized_randForest)
+    ],
+    voting='soft', flatten_transform=False
+)
+ensembler.fit(X_train, y_train)
+evaluate(ensembler, X_train, X_val, y_train, y_val)
+```
+
+```python
+hg_bag = BaggingClassifier(base_estimator=HistGradientBoostingClassifier(random_state=0,
+                                                                        learning_rate=0.2,
+                                                                        max_iter=50,
+                                                                        warm_start=True,
+                                                                        max_depth=40),
+                           random_state=0,
+                           n_estimators = 20, 
+                           bootstrap=False)
+
+hg_bag.fit(X_train, y_train)
+evaluate(hg_bag, X_train, X_val, y_train, y_val)
+```
+
+```python
+grad_bag = BaggingClassifier(base_estimator=GradientBoostingClassifier(random_state=0,
+                                                                        learning_rate=0.2,
+                                                                        warm_start=True,
+                                                                        max_depth=4),
+                           random_state=0,
+                           n_estimators = 20, 
+                           bootstrap=False)
+
+grad_bag.fit(X_train, y_train)
+evaluate(grad_bag, X_train, X_val, y_train, y_val)
+```
+
+```python
+etc = ExtraTreesClassifier(random_state=0, )
+etc.fit(X_train, y_train)
+evaluate(etc, X_train, X_val, y_train, y_val)
 ```
 
 ## Decision Tree
@@ -1607,6 +1705,41 @@ evaluate(dt_gini)
 dt_gini = DecisionTreeClassifier(max_depth = 8, random_state=0)
 dt_gini.fit(X_train, y_train)
 evaluate(dt_gini)
+```
+
+## Decision Tree
+
+```python
+optimized_dt = DecisionTreeClassifier(random_state=0,
+                                     max_depth=7,
+                                     min_samples_leaf=9,
+                                     min_samples_split=3,
+                                     max_features=None)
+
+parameters = {
+    'ccp_alpha': [0, 0.001, 0.01, 0.1, 0.2, 0.3, 0.4] 
+}
+
+search = GridSearchCV(optimized_dt, parameters, scoring=f1_scorer, verbose=10)
+search.fit(X_train, y_train)
+```
+
+```python
+search.best_score_, search.best_params_
+```
+
+```python
+optimized_dt = DecisionTreeClassifier(random_state=0,
+                                     max_depth=10,
+                                     min_samples_leaf=9,
+                                     min_samples_split=3,
+                                     max_features=None)
+optimized_dt.fit(X_train, y_train)
+evaluate(optimized_dt, X_train, X_val, y_train, y_val)
+```
+
+```python
+
 ```
 
 ## Multi Layer Perceptron
@@ -1700,58 +1833,4 @@ clf.best_score_
 
 ```python
 pd.DataFrame(clf.cv_results_)
-```
-
-### Solver lbfgs
-
-```python
-mlp = MLPClassifier(activation='relu', hidden_layer_sizes=(30,), solver='lbfgs')
-mlp.fit(X_train, y_train)
-```
-
-```python
-evaluate(mlp)
-```
-
-```python
-
-```
-
-```python
-
-```
-
-```python
-
-```
-
-```python
- # Random Forest
-    randForest = RandomForestClassifier(max_depth=10, random_state=0,)
-    randForest.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(randForest)) 
-    
-    dt_gini = DecisionTreeClassifier(max_depth = 10, random_state=0)
-    dt_gini.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(dt_gini)) 
-    
-    # Multi-layer Perceptron
-    mlp = MLPClassifier()
-    mlp.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(mlp)) 
-    
-    # Logistic Regression
-    log_model = LogisticRegression()
-    log_model.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(log_model)) 
-    
-    # K-Nearest Neighbors
-    knn = KNeighborsClassifier()
-    knn.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(knn)) 
-    
-    # Gaussian Model
-    nb_model = GaussianNB()
-    nb_model.fit(X_train, y_train)
-    new_scores.append(f1_evaluation(nb_model))
 ```
