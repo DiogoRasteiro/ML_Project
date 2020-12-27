@@ -19,7 +19,7 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-from pandas_profiling import ProfileReport
+#from pandas_profiling import ProfileReport
 
 # Utility Libraries
 from datetime import datetime
@@ -56,38 +56,21 @@ sns.set_theme()
 
 ## Importing Data
 
-
-First, we import both the Train and Test datasets into Pandas Dataframes:
-
 ```python
 data = pd.read_excel('data/Train.xlsx')
 test_data = pd.read_excel('data/Test.xlsx')
 ```
 
 ```python
-data[data['Employment Sector'].isna()][['Income']].value_counts()
-```
-
-Afterwards, let's get a look at our data.
-
-```python
-data.head()
-```
-
-Since the table already has an ID, let's use that as the DF's index.
-
-```python
 data.set_index('CITIZEN_ID',drop=True,inplace=True)
 test_data.set_index('CITIZEN_ID',drop=True,inplace=True)
 ```
-
-Backup the data in case we make significant changes we need to revert
 
 ```python
 backup = data.copy()
 ```
 
-Because we need to handle metric and non-metrical data in a different way, let us create a way to filter them in case it is necessary.
+## Metric and Non Metric Features
 
 ```python
 get_metric_features = FunctionTransformer(lambda x: x.select_dtypes(include=np.number))
@@ -145,81 +128,35 @@ for column in test_data.columns:
 ```
 
 ```python
-print(col_with_missing == testcol_with_missing)
-```
-
-```python
 test_data[testcol_with_missing] = test_data[testcol_with_missing].replace('?', np.NaN)
 data[col_with_missing] = data[col_with_missing].replace('?', np.NaN)
-```
-
-```python
-data.loc[:,col_with_missing].isnull().mean()
-```
-
-```python
-test_data.loc[:,testcol_with_missing].isnull().mean()
 ```
 
 From this, we can see that we have aproximmately the same proportion of missing values in Train and Test.
 
 ```python
-test_data['Base Area'].value_counts()
-```
-
-```python
-data['Base Area'].value_counts()
-```
-
-```python
-data['Employment Sector'].value_counts()
-```
-
-```python
-data['Role'].value_counts()
-```
-
-```python
-data[data['Employment Sector'] == 'Unemployed']
-```
-
-```python
-data[(data['Role'].isna()) & (data['Employment Sector'].isna())]
-```
-
-```python
-data[(data['Role'].isna()) & ~(data['Employment Sector'].isna())]
-```
-
-```python
-role_unemployed_idx=data[(data['Role'].isna()) & ~(data['Employment Sector'].isna())].index
-```
-
-```python
-data[data['Role'].isna()]
-```
-
-```python
-role_na_index=data[data['Role'].isna()].index
-```
-
-```python
-emp_sector_na_index=data[data['Employment Sector'].isna()].index
-```
-
-```python
 def fill_missing_values(df):
     df = df.copy()
+    
+    ### Indexes where were Nans in Employment Sector and/or Role
     emp_sector_na_index=df[df['Employment Sector'].isna()].index
     role_unemployed_idx=df[(df['Role'].isna()) & ~(df['Employment Sector'].isna())].index
     role_na_index=df[df['Role'].isna()].index
+    
+    ##Column to show in which rows were the nans
     df['Job_NA']=0
     df.loc[emp_sector_na_index, 'Job_NA']=1
     df.loc[role_na_index, 'Job_NA']=1
+    
+    ## Special type, these nans in the role where due to 'Never Worked'
     df.loc[role_unemployed_idx, 'Job_NA']=0
-    df['Role'].fillna('Unemployed', inplace=True)
-    index_to_change = df[df['Employment Sector'] == 'Never Worked'].index
+    
+    ## Unemployed people dont 'work' per week
+    index_to_change = df[df['Employment Sector'] == 'Unemployed'].index
     df.loc[index_to_change,'Working Hours per week'] = 0
+    
+    ##Temporary Fill-in of Missing Values
+    df['Role'].fillna('Unemployed', inplace=True)
     df['Employment Sector'].fillna('Unemployed', inplace=True)
     df['Employment Sector'] = df['Employment Sector'].apply(lambda x: 'Unemployed' if x == 'Never Worked' else x)
     df['Base Area'].fillna(df['Base Area'].mode()[0], inplace=True)
@@ -227,10 +164,6 @@ def fill_missing_values(df):
     
 fill_na_transformer = FunctionTransformer(fill_missing_values)
 data_no_missing = fill_na_transformer.fit_transform(data)
-```
-
-```python
-data[data['Employment Sector'] == '?'][['Working Hours per week', 'Employment Sector']].value_counts()
 ```
 
 # Modelling
@@ -431,8 +364,8 @@ def batch_model_update(data_steps, model_steps, model_df, score_name):
 ```
 
 ```python
-df_model = batch_model_creation()
-df_model
+#df_model = batch_model_creation()
+#df_model
 ```
 
 ## Results Exporting
@@ -444,17 +377,6 @@ def export_results(model, nversion,test_data):
     results.index.rename('CITIZEN_ID',inplace=True)
     results.rename(columns={0:'Income'},inplace=True)
     results.to_csv(path_or_buf='subs/Group48_Version'+str(nversion)+'.csv')
-```
-
-```python
-def plot_tree(model):
-    dot_data = export_graphviz(model,
-                               feature_names=X_train.columns,  
-                               class_names=["No Diabetes", "Diabetes"],
-                               filled=True)
-    pydot_graph = pydotplus.graph_from_dot_data(dot_data)
-    pydot_graph.set_size('"20,20"')
-    return graphviz.Source(pydot_graph.to_string())
 ```
 
 ## Outlier Analysis
@@ -534,54 +456,6 @@ plt.suptitle(title)
 plt.show()
 ```
 
-Years of Education Outliers
-
-```python
-len(data[(data['Years of Education']<=7.5) | (data['Years of Education']>=20)])/len(data)
-```
-
-```python
-len(data[(data['Years of Education']<=5) | (data['Years of Education']>=20)])/len(data)
-```
-
-```python
-len(data[data['Years of Education']<=5])/len(data)
-```
-
-```python
-data[(data['Years of Education']<=5) | (data['Years of Education']>=20)].groupby('Years of Education')['Education Level'].value_counts()
-```
-
-Working Hours per Week
-
-```python
-len(data[(data['Working Hours per week']>=60) | (data['Working Hours per week']<=20)]  )/len(data)
-```
-
-```python
-len(data[(data['Working Hours per week']>=80)])/len(data)
-```
-
-Money Received
-
-```python
-len(data[data['Money Received']>=40000])/len(data[data['Money Received']>0])
-```
-
-```python
-len(data[data['Money Received']>=120000])/len(data[data['Money Received']>0])
-```
-
-Ticket Price
-
-```python
-len(data[data['Ticket Price']>=4000])/len(data[data['Ticket Price']>0])
-```
-
-```python
-len(data[data['Ticket Price']>=120000])/len(data[data['Ticket Price']>0])
-```
-
 Outlier Removal
 
 ```python
@@ -613,11 +487,11 @@ no_outliers_pipeline = Pipeline([
 ```
 
 ```python
-df_model = batch_model_update(model_steps=[],
-                   data_steps=no_outliers_pipeline,
-                   model_df=df_model,
-                   score_name='No Outliers')
-df_model
+#df_model = batch_model_update(model_steps=[],
+#                   data_steps=no_outliers_pipeline,
+#                   model_df=df_model,
+#                   score_name='No Outliers')
+#df_model
 ```
 
 ## Variables to transform
@@ -648,11 +522,15 @@ def Sectorsector(string):
 
 def sector_binning(df):
     df = df.copy()
+    
+    ## One Hot Encoding  Of the Sector Itself
     df['Private Sector'] = df['Employment Sector'].apply(lambda x: 1 if 'Private' in x else 0)
     df['Public Sector'] = df['Employment Sector'].apply(lambda x: 1 if 'Public' in x else 0)
     df['Self Employed'] = df['Employment Sector'].apply(lambda x: 1 if 'Self' in x else 0)
     df['Unemployed'] = df['Employment Sector'].apply(lambda x: 1 if 'Unemployed' in x else 0)
     
+    ##Update the new Encoded Vars with the rows where there were Nans
+    ##(This was our turn around to ease the Missing Value Treatment)
     index_to_change=df[df['Job_NA']==1].index
     df.loc[index_to_change, ['Private Sector','Public Sector','Self Employed', 'Unemployed']]=np.nan
     
@@ -671,20 +549,12 @@ sector_binning_transformer = FunctionTransformer(sector_binning)
 ```
 
 ```python
-data.groupby('Education Level')['Years of Education'].value_counts()
-```
-
-```python
 def is_professional(df):
     df = df.copy()
     df['Professional School'] = df['Education Level'].apply(lambda x: 1 if 'Professional' in x else 0)
     return df.drop(columns=['Education Level'])
 
 is_professional_transformer = FunctionTransformer(is_professional)
-```
-
-```python
-data['Native Continent'].value_counts()
 ```
 
 ```python
@@ -726,6 +596,9 @@ def role_dummies(df):
         df['Role'], prefix='Role').iloc[:, :-1],
                                        on=df.index,
                                        left_index=True)
+    
+    ##Update the new Encoded Vars with the rows where there were Nans
+    ##(This was our turn around to ease the Missing Value Treatment)
     index_to_change=df[df['Job_NA']==1].index
     df.loc[index_to_change,['Role_Administratives',
        'Role_Agriculture and Fishing', 'Role_Army', 'Role_Cleaners & Handlers',
@@ -738,6 +611,8 @@ def role_dummies(df):
 role_enconder = FunctionTransformer(role_dummies)
 ```
 
+## Missing Value Treatment Role and Employment Sector
+
 ```python
 def fill_job_na(df):
     df = df.copy()
@@ -749,10 +624,13 @@ def fill_job_na(df):
        'Role_Sales', 'Role_Security', 'Role_Transports','Sector_Company', 
     'Sector_Government', 'Sector_Individual','Sector_Others', 'Sector_Services','Years of Education',
                     'Working Hours per week','Private Sector','Public Sector','Self Employed','Unemployed']
+    
+    ##KNN with one neighbour to ease binary features imputation
     imputer = KNNImputer(n_neighbors=1)
     KNN=imputer.fit_transform(df[columns_to_use])
     to_merge=pd.DataFrame(KNN, index=df.index, columns=columns_to_use)
     df[columns_to_use]=to_merge[columns_to_use]
+    
     return df.drop(columns='Job_NA')
 
 fill_job_na_transformer = FunctionTransformer(fill_job_na)
@@ -783,15 +661,11 @@ variable_encoding_pipeline = Pipeline([
     ('Metric Features', get_metric_features)
 ])
 
-df_model = batch_model_update(data_steps=variable_encoding_pipeline,
-                   model_steps=[],
-                   model_df=df_model,
-                   score_name='Variable Encoding')
-df_model
-```
-
-```python
-# export_results(randForest,3,test_data_encoded)
+#df_model = batch_model_update(data_steps=variable_encoding_pipeline,
+#                   model_steps=[],
+#                   model_df=df_model,
+#                   score_name='Variable Encoding')
+#df_model
 ```
 
 ### Encoded Vars no outliers
@@ -805,11 +679,11 @@ encoded_no_out_pipeline = Pipeline([
 ```
 
 ```python
-df_model = batch_model_update(data_steps = encoded_no_out_pipeline,
-                   model_steps = [],
-                   model_df = df_model,
-                   score_name = 'No Outliers Encoded')
-df_model
+#df_model = batch_model_update(data_steps = encoded_no_out_pipeline,
+#                   model_steps = [],
+#                   model_df = df_model,
+#                   score_name = 'No Outliers Encoded')
+#df_model
 ```
 
 # Feature Extraction
@@ -861,17 +735,18 @@ group_transformer = FunctionTransformer(calculate_group)
 ```
 
 ```python
-def money_ratios(df):
-    df = df.copy()
-    df['Ticket Price per Age'] = df['Ticket Price'] / df['Age']
-    df['Money Received per Age'] = df['Money Received'] / df['Age']
-    df['Ticket Price per YoE'] = df['Ticket Price'] / df['Years of Education']
-    df['Money Received per YoE'] = df['Money Received'] / df['Years of Education']
-    #df['Ticket Price per WHpW'] = df['Ticket Price'] / df['Working Hours per week']
-    #df['Money Received per WHpW'] = df['Money Received'] / df['Working Hours per week']
-    return df
+#Unused Vars
+#Lower Correlation with Target Variable and High Correlation with the Original Vars
 
-money_ratios_transformer = FunctionTransformer(money_ratios)
+##def money_ratios(df):
+  ##  df = df.copy()
+    ##df['Ticket Price per Age'] = df['Ticket Price'] / df['Age']
+##    df['Money Received per Age'] = df['Money Received'] / df['Age']
+##    df['Ticket Price per YoE'] = df['Ticket Price'] / df['Years of Education']
+##    df['Money Received per YoE'] = df['Money Received'] / df['Years of Education']
+  #  return df
+
+#money_ratios_transformer = FunctionTransformer(money_ratios)
 ```
 
 ```python
@@ -881,7 +756,6 @@ variable_transformer = Pipeline([
     ('Education Per Age', edu_per_age_transformer),
     ('Gender', gender_transformer),
     ('Groups', group_transformer),
-    #('Money Rations', money_ratios_transformer)
     
 ])
 
@@ -891,11 +765,11 @@ variable_transformer.fit_transform(data).isna().sum()
 ### Model with new Transformed Variables
 
 ```python
-df_model = batch_model_update(data_steps = variable_transformer,
-                             model_steps = [],
-                             model_df = df_model,
-                             score_name = 'Transformed Variables')
-df_model
+#df_model = batch_model_update(data_steps = variable_transformer,
+#                             model_steps = [],
+#                             model_df = df_model,
+#                             score_name = 'Transformed Variables')
+#df_model
 ```
 
 ## Model with Transformed Vars with no Outliers
@@ -908,11 +782,11 @@ transformed_no_out_pipeline = Pipeline([
 ```
 
 ```python
-df_model = batch_model_update(data_steps=transformed_no_out_pipeline,
-                              model_steps=[],
-                              model_df=df_model,
-                              score_name='Transformed Variables No Outliers')
-df_model
+#df_model = batch_model_update(data_steps=transformed_no_out_pipeline,
+#                              model_steps=[],
+#                              model_df=df_model,
+#                              score_name='Transformed Variables No Outliers')
+#df_model
 ```
 
 ## Correlation Analysis
@@ -944,9 +818,6 @@ corr['Income'].apply(np.abs).sort_values(ascending=False)
 
 ```python
 remove_corr = FunctionTransformer(lambda x: x.drop(columns=['is_group_c', 'is_Married', 'Continent_Africa',
-                                                           #'Ticket Price per Age', 'Money Received per Age',
-                                                           #'Ticket Price per YoE', 'Money Received per YoE',
-                                                           #'Ticket Price per WHpW', 'Money Received per WHpW',
                                                            'Education per Age', 'Sector_Services']))
 ```
 
@@ -962,38 +833,14 @@ model_pipeline = Pipeline([
     ('Scaler', MinMaxScaler()),
 ])
 
-df_model = batch_model_update(data_steps=data_pipeline,
-                              model_steps=model_pipeline,
-                              model_df=df_model,
-                              score_name='Scaled')
-df_model
+#df_model = batch_model_update(data_steps=data_pipeline,
+#                              model_steps=model_pipeline,
+#                              model_df=df_model,
+#                              score_name='Scaled')
+#df_model
 ```
 
 ## Feature Selection
-
-```python
-data_pipeline = Pipeline([
-    ('Variable Transformation', variable_transformer),
-    ('Correlation Removal', remove_corr)
-])
-
-model_pipeline = Pipeline([
-    ('Variable Selection', VarianceThreshold(0.1)),
-])
-
-df_model = batch_model_update(data_steps=data_pipeline,
-                              model_steps=model_pipeline,
-                              model_df=df_model,
-                              score_name='Selection')
-df_model
-```
-
-```python
-df = df_model.melt('Model_Name', var_name='Steps',  value_name='F1 Micro')
-fig, ax = plt.subplots(figsize=(10,10))
-sns.pointplot(x='Steps', y="F1 Micro", hue='Model_Name', data=df, kind='point', ax=ax)
-xticks=plt.xticks(rotation=70)
-```
 
 ```python
 data_transformed = Pipeline([
@@ -1018,10 +865,54 @@ f1_scorer = make_scorer(f1_score, average='micro')
 ```
 
 ```python
+data_pipeline = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+])
+
+model_pipeline = Pipeline([
+    ('Variable Selection', VarianceThreshold(0.1)),
+])
+
+#df_model = batch_model_update(data_steps=data_pipeline,
+#                              model_steps=model_pipeline,
+#                              model_df=df_model,
+#                              score_name='Variance Feature Selection')
+#df_model
+```
+
+```python
+data_pipeline = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+])
+
+treebasedFS=ExtraTreesClassifier(n_estimators=50).fit(X_train,y_train)
+
+model_pipeline = Pipeline([
+    ('Variable Selection', SelectFromModel(estimator=treebasedFS)),
+])
+
+#df_model = batch_model_update(data_steps=data_pipeline,
+#                              model_steps=model_pipeline,
+#                              model_df=df_model,
+#                              score_name='Tree Based Feature Selection')
+#df_model
+```
+
+```python
+df = df_model.melt('Model_Name', var_name='Steps',  value_name='F1 Micro')
+fig, ax = plt.subplots(figsize=(10,10))
+sns.pointplot(x='Steps', y="F1 Micro", hue='Model_Name', data=df, kind='point', ax=ax)
+xticks=plt.xticks(rotation=70)
+plt.title('Base Models Perfomance per Step')
+```
+
+```python
 # generate_report(data_transformed, 'reports/citizen_profiling_after_transformation')
 ```
 
-## Feature Importance
+#### Feature Importance
 
 ```python
 grad_boost_default = GradientBoostingClassifier(random_state=0)
@@ -1060,11 +951,8 @@ parameters = {
 }
 
 search = GridSearchCV(randForest, parameters, estimator = f1_score)
-search.fit(X, target)
-```
-
-```python
-search.best_params_
+#search.fit(X, target)
+#search.best_params_
 ```
 
 ```python
@@ -1076,14 +964,79 @@ optimized_randForest = Pipeline([('Standardization', MinMaxScaler()),
                                                    n_estimators=200,
                                                    warm_start=True))])
 
-optimized_randForest.fit(X_train, y_train)
-evaluate(optimized_randForest, X_train, X_val, y_train, y_val)
+#optimized_randForest.fit(X_train, y_train)
+#evaluate(optimized_randForest, X_train, X_val, y_train, y_val)
+```
+
+```python
+optimized_randForest = RandomForestClassifier(random_state=0,
+                                             max_depth=15,
+                                             max_features='sqrt',
+                                             n_estimators=60,
+                                              min_samples_leaf=2,
+                                             warm_start=True)
+parameters = {
+    'bootstrap' : [True, False]
+}
+
+search = GridSearchCV(optimized_randForest, parameters, scoring=f1_scorer, verbose=10)
+#search.fit(X_train, y_train)
+#search.best_score_, search.best_params_
+```
+
+# Experience with Random Forest, Bagging Inception :)
+
+```python
+optimized_randForest = BaggingClassifier(RandomForestClassifier(random_state=0,
+                                                                 max_depth=11,
+                                                                 max_features=15,
+                                                                 n_estimators=40,
+                                                                 bootstrap=False,
+                                                                 min_samples_leaf=200,
+                                                                 warm_start=True),
+                                         random_state=0,
+                                         bootstrap=True,
+                                         n_estimators=40
+                                        )
+#optimized_randForest.fit(X_train, y_train)
+#evaluate(optimized_randForest, X_train, X_val, y_train, y_val)
+```
+
+## Decision Tree
+
+```python
+optimized_dt = DecisionTreeClassifier(random_state=0,
+                                     max_depth=7,
+                                     min_samples_leaf=9,
+                                     min_samples_split=3,
+                                     max_features=None)
+
+parameters = {
+    'ccp_alpha': [0, 0.001, 0.01, 0.1, 0.2, 0.3, 0.4] 
+}
+
+search = GridSearchCV(optimized_dt, parameters, scoring=f1_scorer, verbose=10)
+#search.fit(X_train, y_train)
+#search.best_score_, search.best_params_
+```
+
+```python
+optimized_dt = DecisionTreeClassifier(random_state=0,
+                                     max_depth=15,
+                                     min_samples_leaf=9,
+                                     min_samples_split=3,
+                                     max_features=None)
+#optimized_dt.fit(X_train, y_train)
+#evaluate(optimized_dt, X_train, X_val, y_train, y_val)
 ```
 
 ## Gradient Boosting
 
 
 ### Feature Importance
+
+
+Slightly improved Gradient Boosting in order to observe Feature Importances
 
 ```python
 grad_boost = Pipeline([
@@ -1107,7 +1060,6 @@ feature_importance = feature_importance[feature_importance['Importance'] > 0.001
 plt.figure(figsize=(10,10))
 sns.barplot(x='Feature',y='Importance',data=feature_importance, order=feature_importance.sort_values('Importance', ascending=False).Feature)
 ax_ticks=plt.xticks(rotation='vertical')
-len(feature_importance)
 ```
 
 ```python
@@ -1120,8 +1072,8 @@ grad_boost = Pipeline([
                                              subsample=0.8))
 ])
 
-grad_boost.fit(X_train, y_train)
-evaluate(grad_boost, X_train, X_val, y_train, y_val)
+#grad_boost.fit(X_train, y_train)
+#evaluate(grad_boost, X_train, X_val, y_train, y_val)
 ```
 
 ### Max_features
@@ -1141,11 +1093,8 @@ parameters = {
 
 search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
                      verbose=10)
-search.fit(X_train, y_train)
-```
-
-```python
-search.best_params_, search.best_score_
+#search.fit(X_train, y_train)
+#search.best_params_, search.best_score_
 ```
 
 ### Max Depth
@@ -1167,15 +1116,12 @@ parameters = {
 
 search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
                      verbose=10)
-search.fit(X_train, y_train)
+#search.fit(X_train, y_train)
+#search.best_params_, search.best_score_
 ```
 
 ```python
-search.best_params_, search.best_score_
-```
-
-```python
-search_n_est = pd.DataFrame(search.cv_results_)[['param_Classifier__n_estimators', 'mean_test_score']]
+#search_n_est = pd.DataFrame(search.cv_results_)[['param_Classifier__n_estimators', 'mean_test_score']]
 ```
 
 ### Max_depth and min_samples_split
@@ -1197,15 +1143,9 @@ parameters = {
 
 search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
                      verbose=10)
-search.fit(X_train, y_train)
-```
-
-```python
-search.best_params_, search.best_score_
-```
-
-```python
-search_max_depth_min_samples_split = pd.DataFrame(search.cv_results_)[['param_Classifier__min_samples_split','param_Classifier__max_depth',  'mean_test_score']]
+#search.fit(X_train, y_train)
+#search.best_params_, search.best_score_
+#search_max_depth_min_samples_split = pd.DataFrame(search.cv_results_)[['param_Classifier__min_samples_split','param_Classifier__max_depth',  'mean_test_score']]
 ```
 
 ### min_samples_leaf
@@ -1228,20 +1168,14 @@ parameters = {
 
 search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
                      verbose=10)
-search.fit(X_train, y_train)
+#search.fit(X_train, y_train)
+#search.best_params_, search.best_score_
 ```
 
 ```python
-search.best_params_, search.best_score_
-```
-
-```python
-search_min_samples_leaf = pd.DataFrame(search.cv_results_)[['param_Classifier__min_samples_leaf', 'mean_test_score']]
-search_min_samples_leaf
-```
-
-```python
-search_max_feat = pd.DataFrame(search.cv_results_)[['param_Classifier__max_features', 'mean_test_score']]
+#search_min_samples_leaf = pd.DataFrame(search.cv_results_)[['param_Classifier__min_samples_leaf', 'mean_test_score']]
+#search_min_samples_leaf
+#search_max_feat = pd.DataFrame(search.cv_results_)[['param_Classifier__max_features', 'mean_test_score']]
 ```
 
 ### Subsample
@@ -1264,21 +1198,15 @@ parameters = {
 
 search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
                      verbose=10)
-search.fit(X_train, y_train)
+#search.fit(X_train, y_train)
 ```
 
 ```python
-search.best_params_, search.best_score_
+#search.best_params_, search.best_score_
+#search_subsample = pd.DataFrame(search.cv_results_)[['param_Classifier__subsample', 'mean_test_score']]
 ```
 
-```python
-search_subsample = pd.DataFrame(search.cv_results_)[['param_Classifier__subsample', 'mean_test_score']]
-```
-
-### Learning and Number of Estimators
-
-
-#### Originals
+### Learning and Number of Estimators Trade Offs
 
 ```python
 grad_boost = Pipeline([
@@ -1293,8 +1221,8 @@ grad_boost = Pipeline([
                                              subsample=0.9))
 ])
 
-grad_boost.fit(X_train, y_train)
-evaluate(grad_boost, X_train, X_val, y_train, y_val)
+#grad_boost.fit(X_train, y_train)
+#evaluate(grad_boost, X_train, X_val, y_train, y_val)
 ```
 
 ```python
@@ -1310,8 +1238,8 @@ grad_boost = Pipeline([
                                              subsample=0.9))
 ])
 
-grad_boost.fit(X_train, y_train)
-evaluate(grad_boost, X_train, X_val, y_train, y_val)
+#grad_boost.fit(X_train, y_train)
+#evaluate(grad_boost, X_train, X_val, y_train, y_val)
 ```
 
 ```python
@@ -1327,8 +1255,8 @@ grad_boost = Pipeline([
                                              subsample=0.9))
 ])
 
-grad_boost.fit(X_train, y_train)
-evaluate(grad_boost, X_train, X_val, y_train, y_val)
+#grad_boost.fit(X_train, y_train)
+#evaluate(grad_boost, X_train, X_val, y_train, y_val)
 ```
 
 ### Other parameters
@@ -1353,11 +1281,12 @@ parameters = {
 
 search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
                      verbose=10)
-search.fit(X_train, y_train)
+#search.fit(X_train, y_train)
+#search.best_params_, search.best_score_
 ```
 
 ```python
-search.best_params_, search.best_score_
+# Gradient Boost Experiences
 ```
 
 ```python
@@ -1381,11 +1310,8 @@ parameters = {
 
 search = GridSearchCV(grad_boost, parameters, scoring=f1_scorer,
                      verbose=10)
-search.fit(X_train, y_train)
-```
-
-```python
-search.best_params_, search.best_score_
+#search.fit(X_train, y_train)
+#search.best_params_, search.best_score_
 ```
 
 ```python
@@ -1404,23 +1330,18 @@ grad_boost = Pipeline([
                                              learning_rate=0.1))
 ])
 
-grad_boost.fit(X_train, y_train)
-evaluate(grad_boost, X_train, X_val, y_train, y_val)
+#grad_boost.fit(X_train, y_train)
+#evaluate(grad_boost, X_train, X_val, y_train, y_val)
 ```
 
 ```python
 grad_boost = Pipeline([('Scaler', MinMaxScaler()),
                        ('Classifier',GradientBoostingClassifier(random_state=10, 
-                                                                learning_rate=0.1, 
-                                                                n_estimators=140, 
-                                                                max_depth=7, 
-                                                                min_samples_leaf=60,
-                                                                max_features=30,
-                                                                subsample=0.8))
+                                                                learning_rate=0.2,))
                                                                 ])
 
-grad_boost.fit(X_train, y_train)
-evaluate(grad_boost, X_train, X_val, y_train, y_val)
+#grad_boost.fit(X_train, y_train)
+#evaluate(grad_boost, X_train, X_val, y_train, y_val)
 ```
 
 ## Hist-Gradient Boosting
@@ -1431,7 +1352,168 @@ evaluate(grad_boost, X_train, X_val, y_train, y_val)
 ```python
 hist_grad = Pipeline([
     ('Scaler', MinMaxScaler()),
-    ('Classifier', HistGradientBoostingClassifier(random_state=0))
+    ('Classifier', HistGradientBoostingClassifier(random_state=0, 
+                                                  max_iter=100,
+                                                  learning_rate=0.10,
+                                             ))
+])
+
+hist_grad.fit(X_train, y_train)
+evaluate(hist_grad, X_train, X_val, y_train, y_val)
+```
+
+## Fine Tuning Max_Depth
+
+```python
+Max_Depth=range(1,25)
+f1_scores_val=[]
+f1_scores_train=[]
+for i in Max_Depth:
+    
+    hist_grad = Pipeline([
+        ('Scaler', MinMaxScaler()),
+        ('Classifier', HistGradientBoostingClassifier(random_state=0, 
+                                                      max_iter=100,
+                                                      learning_rate=0.10,
+                                                      max_depth=i
+                                                 ))
+    ])
+    hist_grad.fit(X_train, y_train)
+    f1_scores_train.append(f1_score(y_train, hist_grad.predict(X_train), average='micro'))
+    f1_scores_val.append(f1_evaluation( X_val,y_val,hist_grad))
+    
+    
+Depth={'Max Depth': Max_Depth, 'F1 Score Train': f1_scores_train, 'F1 Score Validation': f1_scores_val}
+Depth=pd.DataFrame(Depth)
+Depth['diff']=Depth['F1 Score Train']-Depth['F1 Score Validation']
+Depth
+```
+
+```python
+fig, ax = plt.subplots()
+
+Depth.plot(x = 'Max Depth', y = 'F1 Score Train', ax = ax) 
+Depth.plot(x = 'Max Depth', y = 'F1 Score Validation', ax = ax)
+plt.title('Histogram Based Gradient Boosting')
+```
+
+```python
+hist_grad = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', HistGradientBoostingClassifier(random_state=0, 
+                                                  max_iter=100,
+                                                  learning_rate=0.10,
+                                                  max_depth=12
+                                             ))
+])
+
+hist_grad.fit(X_train, y_train)
+evaluate(hist_grad, X_train, X_val, y_train, y_val)
+```
+
+# Bagging and Boosting Experiences
+
+```python
+hg_bag = BaggingClassifier(base_estimator=HistGradientBoostingClassifier(random_state=0,
+                                                                        learning_rate=0.10,
+                                                                        warm_start=True,
+                                                                        max_depth=12),
+                           random_state=0,
+                           n_estimators = 30, 
+                           bootstrap=False)
+
+#hg_bag.fit(X_train, y_train)
+#evaluate(hg_bag, X_train, X_val, y_train, y_val)
+```
+
+```python
+hg_bag = BaggingClassifier(base_estimator=HistGradientBoostingClassifier(random_state=0,
+                                                                        learning_rate=0.25,
+                                                                        max_iter=40,
+                                                                        warm_start=True,
+                                                                        max_depth=8),
+                           random_state=0,
+                           n_estimators = 20,
+                           bootstrap=True)
+
+#hg_bag.fit(X_train, y_train)
+#evaluate(hg_bag, X_train, X_val, y_train, y_val)
+```
+
+```python
+hg_bag = BaggingClassifier(base_estimator=HistGradientBoostingClassifier(random_state=0,
+                                                                        learning_rate=0.25,
+                                                                        max_iter=40,
+                                                                        warm_start=True,
+                                                                        max_depth=11),
+                           random_state=0,
+                           n_estimators = 20,
+                           bootstrap=True)
+
+#hg_bag.fit(X_train, y_train)
+#evaluate(hg_bag, X_train, X_val, y_train, y_val)
+```
+
+```python
+grad_bag = BaggingClassifier(base_estimator=GradientBoostingClassifier(random_state=0,
+                                                                        learning_rate=0.25,
+                                                                       n_estimators=30,
+                                                                        warm_start=True,
+                                                                        max_depth=11),
+                           random_state=0,
+                           n_estimators = 20, 
+                           bootstrap=True)
+
+#grad_bag.fit(X_train, y_train)
+#evaluate(grad_bag, X_train, X_val, y_train, y_val)
+```
+
+# Ensembler
+
+```python
+ensembler = VotingClassifier([
+        ('HG Bag', hg_bag),
+        ('Grad Boosting', grad_boost),
+        ('Hist Grad', hist_grad),
+    ],
+    voting='hard', flatten_transform=True
+)
+#ensembler.fit(X_train, y_train)
+#evaluate(ensembler, X_train, X_val, y_train, y_val)
+```
+
+# Final Submission
+
+```python
+data_transformed = Pipeline([
+    ('Variable Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr),
+]).fit_transform(data)
+
+target = data_transformed['Income']
+X = data_transformed.drop(columns='Income')
+
+X_train, X_val, y_train, y_val = train_test_split(X,
+                                                  target,
+                                                  test_size=0.25,
+                                                  stratify=target,
+                                                  random_state=35)
+test_data_transformed = Pipeline([
+    ('Transformation', variable_transformer),
+    ('Correlation Removal', remove_corr)
+]).fit_transform(test_data)
+
+```
+
+```python
+## Ultima Submissao, Best Model
+hist_grad = Pipeline([
+    ('Scaler', MinMaxScaler()),
+    ('Classifier', HistGradientBoostingClassifier(random_state=0, 
+                                                  max_iter=100,
+                                                  learning_rate=0.10,
+                                                  max_depth=12
+                                             ))
 ])
 
 hist_grad.fit(X_train, y_train)
@@ -1439,109 +1521,5 @@ evaluate(hist_grad, X_train, X_val, y_train, y_val)
 ```
 
 ```python
-search.best_params_, search.best_score_
-```
-
-```python
-optimized_randForest = RandomForestClassifier(random_state=0,
-                                             max_depth=15,
-                                             max_features='sqrt',
-                                             n_estimators=60,
-                                              min_samples_leaf=2,
-                                             warm_start=True)
-parameters = {
-    'bootstrap' : [True, False]
-}
-
-search = GridSearchCV(optimized_randForest, parameters, scoring=f1_scorer, verbose=10)
-search.fit(X_train, y_train)
-search.best_score_, search.best_params_
-```
-
-```python
-optimized_randForest = BaggingClassifier(RandomForestClassifier(random_state=0,
-                                                                 max_depth=30,
-                                                                 max_features='sqrt',
-                                                                 n_estimators=60,
-                                                                 bootstrap=False,
-                                                                 min_samples_leaf=2,
-                                                                 warm_start=True),
-                                         random_state=0,
-                                         bootstrap=False,
-                                         n_estimators=10
-                                        )
-optimized_randForest.fit(X_train, y_train)
-evaluate(optimized_randForest, X_train, X_val, y_train, y_val)
-```
-
-```python
-ensembler = VotingClassifier([
-        ('Grad Bag', grad_bag),
-        ('HG Bag', hg_bag),
-        ('Grad Boosting', grad_boost),
-        ('Hist Grad', hist_grad),
-        ('Random Forest', optimized_randForest)
-    ],
-    voting='hard', flatten_transform=False
-)
-ensembler.fit(X_train, y_train)
-evaluate(ensembler, X_train, X_val, y_train, y_val)
-```
-
-```python
-hg_bag = BaggingClassifier(base_estimator=HistGradientBoostingClassifier(random_state=0,
-                                                                        learning_rate=0.23,
-                                                                        max_iter=50,
-                                                                        warm_start=True,
-                                                                        max_depth=40),
-                           random_state=0,
-                           n_estimators = 30, 
-                           bootstrap=False)
-
-hg_bag.fit(X_train, y_train)
-evaluate(hg_bag, X_train, X_val, y_train, y_val)
-```
-
-```python
-grad_bag = BaggingClassifier(base_estimator=GradientBoostingClassifier(random_state=0,
-                                                                        learning_rate=0.2,
-                                                                        warm_start=True,
-                                                                        max_depth=10),
-                           random_state=0,
-                           n_estimators = 20, 
-                           bootstrap=False)
-
-grad_bag.fit(X_train, y_train)
-evaluate(grad_bag, X_train, X_val, y_train, y_val)
-```
-
-## Decision Tree
-
-```python
-optimized_dt = DecisionTreeClassifier(random_state=0,
-                                     max_depth=7,
-                                     min_samples_leaf=9,
-                                     min_samples_split=3,
-                                     max_features=None)
-
-parameters = {
-    'ccp_alpha': [0, 0.001, 0.01, 0.1, 0.2, 0.3, 0.4] 
-}
-
-search = GridSearchCV(optimized_dt, parameters, scoring=f1_scorer, verbose=10)
-search.fit(X_train, y_train)
-```
-
-```python
-search.best_score_, search.best_params_
-```
-
-```python
-optimized_dt = DecisionTreeClassifier(random_state=0,
-                                     max_depth=15,
-                                     min_samples_leaf=9,
-                                     min_samples_split=3,
-                                     max_features=None)
-optimized_dt.fit(X_train, y_train)
-evaluate(optimized_dt, X_train, X_val, y_train, y_val)
+#export_results(hist_grad,35,test_data_transformed)
 ```
