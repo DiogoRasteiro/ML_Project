@@ -654,6 +654,7 @@ def sector_binning(df):
     df = df.drop(columns='Sector').merge(pd.get_dummies(df['Sector'], prefix='Sector').iloc[:, :-1],
                                                        on=df.index,
                                                        left_index=True)
+    df.rename(columns={'Sector_Services ': 'Sector_Services'}, inplace=True)
     
     return df.drop(columns=['Employment Sector', 'key_0'])
 
@@ -880,7 +881,7 @@ df_model
 ```
 
 ```python
-df_model.drop(columns=['No Outliers Encoded', 'Transformed Variables No Outliers'], inplace=True)
+#df_model.drop(columns=['No Outliers Encoded', 'Transformed Variables No Outliers'], inplace=True)
 ```
 
 ## Correlation Analysis
@@ -942,20 +943,6 @@ test_data_transformed = Pipeline([
 ]).fit_transform(test_data)
 
 f1_scorer = make_scorer(f1_score, average='micro')
-```
-
-```python
-test_model = Pipeline([
-    ('Scaler', MinMaxScaler()),
-    ('Classifier', BaggingClassifier(random_state=0, base_estimator=))
-])
-
-parameters = {
-    'Classifier__' : 0
-}
-
-test_model.fit(X_train, y_train)
-evaluate(test_model, X_train, X_val, y_train, y_val)
 ```
 
 ```python
@@ -1045,7 +1032,7 @@ test_data_transformed = Pipeline([
     ('Transformation', variable_transformer),
     ('Correlation Removal', remove_corr)
 ]).fit_transform(test_data)
-export_results(search.best_estimator_, 17, test_data_transformed)
+#export_results(search.best_estimator_, 17, test_data_transformed)
 ```
 
 ## Feature Importance
@@ -1097,7 +1084,7 @@ test_data_transformed = Pipeline([
     ('Transformation', variable_transformer),
     ('Correlation Removal', remove_corr)
 ]).fit_transform(test_data)
-export_results(ada_model, 12, test_data_transformed)
+#export_results(ada_model, 12, test_data_transformed)
 ```
 
 ## Data Standartization
@@ -1117,6 +1104,13 @@ df_model = batch_model_update(data_steps=data_pipeline,
                               model_df=df_model,
                               score_name='Scaled')
 df_model
+```
+
+```python
+df = df_model[['Model_Name','No Outliers Encoded','Transformed Variables',]].melt('Model_Name', var_name='Steps',  value_name='F1 Micro')
+fig=plt.figure(figsize=(10,100))
+g = sns.catplot(x='Steps', y="F1 Micro", hue='Model_Name', data=df, kind='point')
+xticks=plt.xticks(rotation=70)
 ```
 
 # Fine Tuning
