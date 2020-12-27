@@ -80,6 +80,10 @@ data = pd.read_excel('data/Train.xlsx')
 test_data = pd.read_excel('data/Test.xlsx')
 ```
 
+```python
+data[data['Employment Sector'].isna()][['Income']].value_counts()
+```
+
 Afterwards, let's get a look at our data.
 
 ```python
@@ -213,11 +217,17 @@ def fill_missing_values(df):
     df['Role'].fillna('Unemployed', inplace=True)
     df['Employment Sector'].fillna('Unemployed', inplace=True)
     df['Employment Sector'] = df['Employment Sector'].apply(lambda x: 'Unemployed' if x == 'Never Worked' else x)
+    # index_to_change = df[df['Employment Sector'] == 'Unemployed'].index
+    # df.loc[index_to_change,'Working Hours per week'] = 0
     df['Base Area'].fillna(df['Base Area'].mode()[0], inplace=True)
     return df
     
 fill_na_transformer = FunctionTransformer(fill_missing_values)
-fill_na_transformer.fit_transform(data).isna().mean()
+data_no_missing = fill_na_transformer.fit_transform(data)
+```
+
+```python
+data[data['Employment Sector'] == '?'][['Working Hours per week', 'Employment Sector']].value_counts()
 ```
 
 # Modelling
@@ -832,9 +842,10 @@ variable_transformer = Pipeline([
     ('Gender', gender_transformer),
     ('Groups', group_transformer),
     ('Money Rations', money_ratios_transformer)
+    
 ])
 
-variable_transformer.fit_transform(data).columns
+variable_transformer.fit_transform(data).isna().sum()
 ```
 
 ### Model with new Transformed Variables
@@ -908,7 +919,7 @@ remove_corr = FunctionTransformer(lambda x: x.drop(columns=['is_group_c', 'is_Ma
                                                            'Ticket Price per Age', 'Money Received per Age',
                                                            'Ticket Price per YoE', 'Money Received per YoE',
                                                            'Ticket Price per WHpW', 'Money Received per WHpW',
-                                                           'Education per Age']))
+                                                           'Education per Age', 'Sector_Services']))
 ```
 
 ```python
@@ -1567,18 +1578,6 @@ evaluate(hist_grad, X_train, X_val, y_train, y_val)
 ```
 
 ```python
-hist_grad = Pipeline([
-    ('Scaler', MinMaxScaler()),
-    ('Classifier', HistGradientBoostingClassifier(random_state=0,
-                                                 scoring=f1_scorer
-                                                 ))
-])
-
-hist_grad.fit(X_train, y_train)
-evaluate(hist_grad, X_train, X_val, y_train, y_val)
-```
-
-```python
 search.best_params_, search.best_score_
 ```
 
@@ -1622,7 +1621,7 @@ ensembler = VotingClassifier([
         ('Hist Grad', hist_grad),
         ('Random Forest', optimized_randForest)
     ],
-    voting='soft', flatten_transform=False
+    voting='hard', flatten_transform=False
 )
 ensembler.fit(X_train, y_train)
 evaluate(ensembler, X_train, X_val, y_train, y_val)
@@ -1630,16 +1629,20 @@ evaluate(ensembler, X_train, X_val, y_train, y_val)
 
 ```python
 hg_bag = BaggingClassifier(base_estimator=HistGradientBoostingClassifier(random_state=0,
-                                                                        learning_rate=0.2,
-                                                                        max_iter=50,
+                                                                        learning_rate=0.25,
+                                                                        max_iter=30,
                                                                         warm_start=True,
-                                                                        max_depth=40),
+                                                                        max_depth=20),
                            random_state=0,
-                           n_estimators = 20, 
+                           n_estimators = 10, 
                            bootstrap=False)
 
 hg_bag.fit(X_train, y_train)
 evaluate(hg_bag, X_train, X_val, y_train, y_val)
+```
+
+```python
+export_results(hg_bag, 30, test_data_transformed)
 ```
 
 ```python
