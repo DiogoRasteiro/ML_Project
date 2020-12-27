@@ -40,6 +40,7 @@ from sklearn.feature_selection import VarianceThreshold, RFE, RFECV, SelectFromM
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler, FunctionTransformer, RobustScaler, StandardScaler
 from sklearn.decomposition import PCA
+from sklearn.impute import KNNImputer
 from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
 from sklearn.metrics import make_scorer
 from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, f1_score, recall_score, classification_report
@@ -191,6 +192,14 @@ data[(data['Role'].isna()) & ~(data['Employment Sector'].isna())]
 
 ```python
 data[data['Role'].isna()]
+```
+
+```python
+role_na_index=data[data['Role'].isna()].index
+```
+
+```python
+emp_sector_na_index=data[data['Employment Sector'].isna()].index
 ```
 
 ```python
@@ -628,14 +637,20 @@ def Sectorsector(string):
 def sector_binning(df):
     df = df.copy()
     df['Private Sector'] = df['Employment Sector'].apply(lambda x: 1 if 'Private' in x else 0)
+    df.loc[emp_sector_na_index,'Private Sector']=np.nan
     df['Public Sector'] = df['Employment Sector'].apply(lambda x: 1 if 'Public' in x else 0)
+    df.loc[emp_sector_na_index,'Public Sector']=np.nan
     df['Self Employed'] = df['Employment Sector'].apply(lambda x: 1 if 'Self' in x else 0)
+    df.loc[emp_sector_na_index,'Self Employed']=np.nan
     df['Unemployed'] = df['Employment Sector'].apply(lambda x: 1 if 'Unemployed' in x else 0)
+    df.loc[emp_sector_na_index,'Unemployed']=np.nan
     
     df['Sector'] = df['Employment Sector'].apply(lambda x: Sectorsector(x))
     df = df.drop(columns='Sector').merge(pd.get_dummies(df['Sector'], prefix='Sector').iloc[:, :-1],
                                                        on=df.index,
                                                        left_index=True)
+    df.loc[emp_sector_na_index,['Sector_Company', 'Sector_Government', 'Sector_Individual','Sector_Others', 'Sector_Services ']]=np.nan
+    
     df.rename(columns={'Sector_Services ': 'Sector_Services'}, inplace=True)
     
     return df.drop(columns=['Employment Sector', 'key_0'])
@@ -699,9 +714,35 @@ def role_dummies(df):
         df['Role'], prefix='Role').iloc[:, :-1],
                                        on=df.index,
                                        left_index=True)
+    df.loc[role_na_index,['Role_Administratives',
+       'Role_Agriculture and Fishing', 'Role_Army', 'Role_Cleaners & Handlers',
+       'Role_Household Services', 'Role_IT',
+       'Role_Machine Operators & Inspectors', 'Role_Management',
+       'Role_Other services', 'Role_Professor', 'Role_Repair & constructions',
+       'Role_Sales', 'Role_Security', 'Role_Transports']]=np.nan
     return df.drop(columns='key_0')
 
 role_enconder = FunctionTransformer(role_dummies)
+```
+
+```python
+def fill_job_na(df):
+    df = df.copy()
+    columns_to_use=['Role_Administratives',
+       'Role_Agriculture and Fishing', 'Role_Army', 'Role_Cleaners & Handlers',
+       'Role_Household Services', 'Role_IT',
+       'Role_Machine Operators & Inspectors', 'Role_Management',
+       'Role_Other services', 'Role_Professor', 'Role_Repair & constructions',
+       'Role_Sales', 'Role_Security', 'Role_Transports','Sector_Company', 
+    'Sector_Government', 'Sector_Individual','Sector_Others', 'Sector_Services','Years of Education',
+                    'Working Hours per week','Private Sector','Public Sector','Self Employed','Unemployed']
+    imputer = KNNImputer(n_neighbors=1)
+    KNN=imputer.fit_transform(df[columns_to_use])
+    to_merge=pd.DataFrame(KNN, index=df.index, columns=columns_to_use)
+    df[columns_to_use]=to_merge[columns_to_use]
+    return df
+
+fill_job_na_transformer = FunctionTransformer(fill_job_na)
 ```
 
 ```python
@@ -713,13 +754,28 @@ variable_encoder = Pipeline([
     ('Native Continent', continent_encoder),
     ('Lives With', lives_with_encoder),
     ('Lives in Northbury', lives_northbury_encoder),
-    ('Role', role_enconder)
+    ('Role', role_enconder),
+    ('Fill Job Na',fill_job_na_transformer)
+    
 ])
 
-variable_encoder.fit_transform(data).columns
+variable_encoder.fit_transform(data).isna().sum()
 ```
 
 ## Model with Encoded Vars
+
+```python
+variable_encoding_pipeline = Pipeline([
+    ('Variable Encoding', variable_encoder),
+    ('Metric Features', get_metric_features)
+])
+
+df_model = batch_model_update(data_steps=variable_encoding_pipeline,
+                   model_steps=[],
+                   model_df=df_model,
+                   score_name='Variable Encoding')
+df_model
+```
 
 ```python
 variable_encoding_pipeline = Pipeline([
