@@ -23,11 +23,12 @@ from pandas_profiling import ProfileReport
 
 # Utility Libraries
 from datetime import datetime
+from sklearn.experimental import enable_hist_gradient_boosting
+
 
 # Model Libraries
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, StackingClassifier, VotingClassifier, BaggingClassifier
 from sklearn.ensemble import AdaBoostClassifier, GradientBoostingClassifier, HistGradientBoostingClassifier, ExtraTreesClassifier, IsolationForest
-from sklearn.experimental import enable_hist_gradient_boosting
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LogisticRegression
@@ -191,6 +192,10 @@ data[(data['Role'].isna()) & ~(data['Employment Sector'].isna())]
 ```
 
 ```python
+role_unemployed_idx=data[(data['Role'].isna()) & ~(data['Employment Sector'].isna())].index
+```
+
+```python
 data[data['Role'].isna()]
 ```
 
@@ -205,11 +210,18 @@ emp_sector_na_index=data[data['Employment Sector'].isna()].index
 ```python
 def fill_missing_values(df):
     df = df.copy()
+    emp_sector_na_index=df[df['Employment Sector'].isna()].index
+    role_unemployed_idx=df[(df['Role'].isna()) & ~(df['Employment Sector'].isna())].index
+    role_na_index=df[df['Role'].isna()].index
+    df['Job_NA']=0
+    df.loc[emp_sector_na_index, 'Job_NA']=1
+    df.loc[role_na_index, 'Job_NA']=1
+    df.loc[role_unemployed_idx, 'Job_NA']=0
     df['Role'].fillna('Unemployed', inplace=True)
+    index_to_change = df[df['Employment Sector'] == 'Never Worked'].index
+    df.loc[index_to_change,'Working Hours per week'] = 0
     df['Employment Sector'].fillna('Unemployed', inplace=True)
     df['Employment Sector'] = df['Employment Sector'].apply(lambda x: 'Unemployed' if x == 'Never Worked' else x)
-    # index_to_change = df[df['Employment Sector'] == 'Unemployed'].index
-    # df.loc[index_to_change,'Working Hours per week'] = 0
     df['Base Area'].fillna(df['Base Area'].mode()[0], inplace=True)
     return df
     
@@ -637,19 +649,19 @@ def Sectorsector(string):
 def sector_binning(df):
     df = df.copy()
     df['Private Sector'] = df['Employment Sector'].apply(lambda x: 1 if 'Private' in x else 0)
-    df.loc[emp_sector_na_index,'Private Sector']=np.nan
     df['Public Sector'] = df['Employment Sector'].apply(lambda x: 1 if 'Public' in x else 0)
-    df.loc[emp_sector_na_index,'Public Sector']=np.nan
     df['Self Employed'] = df['Employment Sector'].apply(lambda x: 1 if 'Self' in x else 0)
-    df.loc[emp_sector_na_index,'Self Employed']=np.nan
     df['Unemployed'] = df['Employment Sector'].apply(lambda x: 1 if 'Unemployed' in x else 0)
-    df.loc[emp_sector_na_index,'Unemployed']=np.nan
+    
+    index_to_change=df[df['Job_NA']==1].index
+    df.loc[index_to_change, ['Private Sector','Public Sector','Self Employed', 'Unemployed']]=np.nan
     
     df['Sector'] = df['Employment Sector'].apply(lambda x: Sectorsector(x))
     df = df.drop(columns='Sector').merge(pd.get_dummies(df['Sector'], prefix='Sector').iloc[:, :-1],
                                                        on=df.index,
                                                        left_index=True)
-    df.loc[emp_sector_na_index,['Sector_Company', 'Sector_Government', 'Sector_Individual','Sector_Others', 'Sector_Services ']]=np.nan
+    df.loc[index_to_change, ['Sector_Company', 
+    'Sector_Government', 'Sector_Individual','Sector_Others', 'Sector_Services ']]=np.nan
     
     df.rename(columns={'Sector_Services ': 'Sector_Services'}, inplace=True)
     
@@ -714,7 +726,8 @@ def role_dummies(df):
         df['Role'], prefix='Role').iloc[:, :-1],
                                        on=df.index,
                                        left_index=True)
-    df.loc[role_na_index,['Role_Administratives',
+    index_to_change=df[df['Job_NA']==1].index
+    df.loc[index_to_change,['Role_Administratives',
        'Role_Agriculture and Fishing', 'Role_Army', 'Role_Cleaners & Handlers',
        'Role_Household Services', 'Role_IT',
        'Role_Machine Operators & Inspectors', 'Role_Management',
@@ -740,7 +753,7 @@ def fill_job_na(df):
     KNN=imputer.fit_transform(df[columns_to_use])
     to_merge=pd.DataFrame(KNN, index=df.index, columns=columns_to_use)
     df[columns_to_use]=to_merge[columns_to_use]
-    return df
+    return df.drop(columns='Job_NA')
 
 fill_job_na_transformer = FunctionTransformer(fill_job_na)
 ```
@@ -763,19 +776,6 @@ variable_encoder.fit_transform(data).isna().sum()
 ```
 
 ## Model with Encoded Vars
-
-```python
-variable_encoding_pipeline = Pipeline([
-    ('Variable Encoding', variable_encoder),
-    ('Metric Features', get_metric_features)
-])
-
-df_model = batch_model_update(data_steps=variable_encoding_pipeline,
-                   model_steps=[],
-                   model_df=df_model,
-                   score_name='Variable Encoding')
-df_model
-```
 
 ```python
 variable_encoding_pipeline = Pipeline([
@@ -867,8 +867,8 @@ def money_ratios(df):
     df['Money Received per Age'] = df['Money Received'] / df['Age']
     df['Ticket Price per YoE'] = df['Ticket Price'] / df['Years of Education']
     df['Money Received per YoE'] = df['Money Received'] / df['Years of Education']
-    df['Ticket Price per WHpW'] = df['Ticket Price'] / df['Working Hours per week']
-    df['Money Received per WHpW'] = df['Money Received'] / df['Working Hours per week']
+    #df['Ticket Price per WHpW'] = df['Ticket Price'] / df['Working Hours per week']
+    #df['Money Received per WHpW'] = df['Money Received'] / df['Working Hours per week']
     return df
 
 money_ratios_transformer = FunctionTransformer(money_ratios)
@@ -881,7 +881,7 @@ variable_transformer = Pipeline([
     ('Education Per Age', edu_per_age_transformer),
     ('Gender', gender_transformer),
     ('Groups', group_transformer),
-    ('Money Rations', money_ratios_transformer)
+    #('Money Rations', money_ratios_transformer)
     
 ])
 
@@ -913,6 +913,41 @@ df_model = batch_model_update(data_steps=transformed_no_out_pipeline,
                               model_df=df_model,
                               score_name='Transformed Variables No Outliers')
 df_model
+```
+
+## Correlation Analysis
+
+```python
+data_transformed = variable_transformer.fit_transform(data)
+```
+
+```python
+# Prepare figure
+fig = plt.figure(figsize=(20, 20))
+# Obtain correlation matrix. Round the values to 2 decimal cases. Use the DataFrame corr() and round() method.
+corr = np.round(data_transformed.corr(method="pearson"), decimals=2)
+# Build annotation matrix (values above |0.5| will appear annotated in the plot)
+mask_annot = np.absolute(corr.values) >= 0.5
+annot = np.where(mask_annot, corr.values, np.full(corr.shape,"")) # Try to understand what this np.where() does
+# Plot heatmap of the correlation matrix
+sns.heatmap(data=corr, annot=annot, cmap=sns.diverging_palette(220, 10, as_cmap=True), 
+            fmt='s', vmin=-1, vmax=1, center=0, square=True, linewidths=.5)
+# Layout
+fig.subplots_adjust(top=0.95)
+fig.suptitle("Correlation Matrix", fontsize=20)
+plt.show()
+```
+
+```python
+corr['Income'].apply(np.abs).sort_values(ascending=False)
+```
+
+```python
+remove_corr = FunctionTransformer(lambda x: x.drop(columns=['is_group_c', 'is_Married', 'Continent_Africa',
+                                                           #'Ticket Price per Age', 'Money Received per Age',
+                                                           #'Ticket Price per YoE', 'Money Received per YoE',
+                                                           #'Ticket Price per WHpW', 'Money Received per WHpW',
+                                                           'Education per Age', 'Sector_Services']))
 ```
 
 ## Data Standartization
@@ -958,41 +993,6 @@ df = df_model.melt('Model_Name', var_name='Steps',  value_name='F1 Micro')
 fig, ax = plt.subplots(figsize=(10,10))
 sns.pointplot(x='Steps', y="F1 Micro", hue='Model_Name', data=df, kind='point', ax=ax)
 xticks=plt.xticks(rotation=70)
-```
-
-## Correlation Analysis
-
-```python
-data_transformed = variable_transformer.fit_transform(data)
-```
-
-```python
-# Prepare figure
-fig = plt.figure(figsize=(20, 20))
-# Obtain correlation matrix. Round the values to 2 decimal cases. Use the DataFrame corr() and round() method.
-corr = np.round(data_transformed.corr(method="pearson"), decimals=2)
-# Build annotation matrix (values above |0.5| will appear annotated in the plot)
-mask_annot = np.absolute(corr.values) >= 0.5
-annot = np.where(mask_annot, corr.values, np.full(corr.shape,"")) # Try to understand what this np.where() does
-# Plot heatmap of the correlation matrix
-sns.heatmap(data=corr, annot=annot, cmap=sns.diverging_palette(220, 10, as_cmap=True), 
-            fmt='s', vmin=-1, vmax=1, center=0, square=True, linewidths=.5)
-# Layout
-fig.subplots_adjust(top=0.95)
-fig.suptitle("Correlation Matrix", fontsize=20)
-plt.show()
-```
-
-```python
-corr['Income'].apply(np.abs).sort_values(ascending=False)
-```
-
-```python
-remove_corr = FunctionTransformer(lambda x: x.drop(columns=['is_group_c', 'is_Married', 'Continent_Africa',
-                                                           'Ticket Price per Age', 'Money Received per Age',
-                                                           'Ticket Price per YoE', 'Money Received per YoE',
-                                                           'Ticket Price per WHpW', 'Money Received per WHpW',
-                                                           'Education per Age', 'Sector_Services']))
 ```
 
 ```python
